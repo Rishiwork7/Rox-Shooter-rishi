@@ -14,10 +14,18 @@ from pptx import Presentation
 from pptx.util import Inches
 from PIL import Image as PILImage
 import xlsxwriter
+import subprocess
+import sys
 
-# Set aesthetics
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
+
+def install_browsers():
+    """Ensure playwright browsers are installed."""
+    try:
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True)
+    except:
+        pass
 
 class TextParser:
     def __init__(self):
@@ -736,5 +744,7 @@ class App(ctk.CTk):
         self.destroy()
 
 if __name__ == "__main__":
+    # Install browsers before starting UI
+    threading.Thread(target=install_browsers, daemon=True).start()
     app = App()
     app.mainloop()
