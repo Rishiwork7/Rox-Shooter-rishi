@@ -1,0 +1,7 @@
+customtkinter
+playwright
+pdfkit
+imgkit
+python-pptx
+pandas
+xlsxwriter
