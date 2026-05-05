@@ -6,4 +6,3 @@ __pycache__/
 temp_attachments/
 *.pyc
 .DS_Store
-*.spec
