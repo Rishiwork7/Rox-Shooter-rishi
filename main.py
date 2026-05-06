@@ -483,17 +483,32 @@ class App(ctk.CTk):
 
     async def close_window_task(self, window_id):
         if window_id in self.contexts:
-            data = self.contexts.pop(window_id)
+            # Get reference but don't pop yet to keep tracking
+            data = self.contexts.get(window_id)
+            if not data: return
+            
             self.log(f"Closing Window {window_id}...")
             try:
-                await data["context"].close()
-                await data["pw"].stop()
-            except:
-                pass
+                if "page" in data:
+                    await data["page"].close()
+                if "context" in data:
+                    await data["context"].close()
+                if "pw" in data:
+                    await data["pw"].stop()
+                self.log(f"Window {window_id} closed successfully.")
+            except Exception as e:
+                self.log(f"Error closing Window {window_id}: {e}")
+            finally:
+                # Remove from tracking after attempt
+                if window_id in self.contexts:
+                    self.contexts.pop(window_id)
             
             # Update UI
             if "ui_row" in data:
-                self.after(0, data["ui_row"].destroy)
+                try:
+                    self.after(0, data["ui_row"].destroy)
+                except:
+                    pass
 
     def on_terminate_all(self):
         self.log("Terminating all windows...")
@@ -733,13 +748,16 @@ class App(ctk.CTk):
     def on_closing(self):
         """Handles application shutdown."""
         self.is_blasting = False
-        self.log("Shutting down... Please wait.")
+        self.log("Shutting down... Terminating browsers.")
         
-        # 1. Terminate all contexts
-        self.on_terminate_all()
+        # 1. Start termination for all contexts
+        ids = list(self.contexts.keys())
+        for window_id in ids:
+            self.run_coro(self.close_window_task(window_id))
         
-        # 2. Stop the loop
-        self.after(1500, self.final_cleanup)
+        # 2. Wait longer for browsers to finish cleanup before killing the loop
+        # Increased to 3 seconds for better reliability with real Chrome
+        self.after(3000, self.final_cleanup)
 
     def final_cleanup(self):
         try:
