@@ -433,7 +433,7 @@ class App(ctk.CTk):
                 user_data_dir=profile_path,
                 channel="chrome",
                 headless=False,
-                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+                args=["--incognito", "--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             
             # Initial page: reuse default tab if exists, else create new
