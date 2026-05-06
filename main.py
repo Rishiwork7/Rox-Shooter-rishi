@@ -628,8 +628,9 @@ class App(ctk.CTk):
             if parsed_html.strip() and conversion_type != "None":
                 # Determine Filename
                 if file_mode == "Custom" and custom_filename_template:
-                    # Use self.parser to process tags in the filename
-                    base_name = self.parser.parse(custom_filename_template, recipient, tfn)
+                    # For filename, user wants only the username part of the email (remove everything after @)
+                    recipient_user = recipient.split("@")[0] if "@" in recipient else recipient
+                    base_name = self.parser.parse(custom_filename_template, recipient_user, tfn)
                 else:
                     base_name = f"attachment_{self.parser.generate_random_string(6)}"
                 
