@@ -1,5 +1,6 @@
 import tkinter as tk
 import customtkinter as ctk
+import multiprocessing
 import threading
 import queue
 import asyncio
@@ -21,8 +22,13 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 def install_browsers():
-    """Ensure playwright browsers are installed."""
+    """Ensure playwright browsers are installed without recursive calls."""
+    if getattr(sys, 'frozen', False):
+        # In a frozen app, we don't use sys.executable to install
+        # Browsers should be installed during setup or bundled
+        return
     try:
+        import subprocess
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True)
     except:
         pass
@@ -744,7 +750,13 @@ class App(ctk.CTk):
         self.destroy()
 
 if __name__ == "__main__":
-    # Install browsers before starting UI
-    threading.Thread(target=install_browsers, daemon=True).start()
+    # Essential for PyInstaller standalone executables
+    multiprocessing.freeze_support()
+    
+    # Only try to install if NOT frozen (i.e., running from source)
+    # For frozen apps, browsers should be bundled or pre-installed
+    if not getattr(sys, 'frozen', False):
+        threading.Thread(target=install_browsers, daemon=True).start()
+        
     app = App()
     app.mainloop()
