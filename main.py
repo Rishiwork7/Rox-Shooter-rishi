@@ -431,8 +431,9 @@ class App(ctk.CTk):
             pw = await async_playwright().start()
             context = await pw.chromium.launch_persistent_context(
                 user_data_dir=profile_path,
+                channel="chrome",
                 headless=False,
-                args=["--incognito", "--disable-blink-features=AutomationControlled"]
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
             
             # Initial page: reuse default tab if exists, else create new
