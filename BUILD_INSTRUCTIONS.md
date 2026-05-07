@@ -1,89 +1,78 @@
-# Gmail Mailer Pro - Build Instructions (UPDATED)
+# Gmail Mailer Pro - Build Instructions (v2)
 
-## Problem Fixed
-Playwright browsers (chromium) were not being found in the standalone .exe, causing PDF/Image attachment conversion to fail.
+## Problem
+When running as a standalone `.exe`, Playwright's chromium browser was not found because:
+1. `sys.executable` in a PyInstaller bundle points to the `.exe` itself, NOT Python
+2. So `subprocess.run([sys.executable, "-m", "playwright", "install", ...])` silently fails
+3. Browsers were being cached in `%TEMP%` which gets cleaned up by Windows
 
-## Solution Implemented
+## Solution (v2)
 
-### 1. **Updated PyInstaller Spec** (`build_app.spec`)
-- Added `collect_submodules('playwright')` to include all Playwright modules
-- Added hidden imports for Playwright implementations
-- Included PIL and PPTX data files for image handling
+### Key Changes
 
-### 2. **Updated main.py**
-- Added `setup_playwright_env()` function to set `PLAYWRIGHT_BROWSERS_PATH` environment variable
-- This tells Playwright where to cache/find browsers in temp directory
-- Updated `install_browsers()` to work in frozen (bundled) applications
-- Changed main block to always install browsers on startup
+| What | Old (Broken) | New (Fixed) |
+|------|-------------|-------------|
+| **Browser Install** | `sys.executable -m playwright install` | Uses `playwright._impl._driver.compute_driver_executable()` to call the Playwright CLI directly |
+| **Browser Path** | `%TEMP%\playwright_browsers` (gets cleaned) | `%LOCALAPPDATA%\GmailMailerPro\playwright_browsers` (persistent) |
+| **Driver Binary** | Not bundled | Bundled via `pw_driver_binaries` in spec |
+| **First Run** | Silent failure | Shows info dialog + installs Chromium |
+| **Pre-launch Check** | None | `_ensure_browser()` check before every conversion |
+| **Console** | `False` | `True` for debugging (change to `False` when confirmed) |
 
-## How to Build
+### How It Works Now
+
+1. **On startup**: App checks if Chromium is already installed at the persistent path
+2. **If not found (first run)**: Shows a dialog telling user "downloading browser components", then installs using Playwright's own driver executable (works inside .exe!)
+3. **Before each conversion**: `_ensure_browser()` double-checks and auto-installs if needed
+4. **Browsers persist** in `%LOCALAPPDATA%\GmailMailerPro\playwright_browsers\` — won't get deleted by Windows cleanup
+
+## Build Steps
 
 ### Prerequisites
 ```bash
-# Make sure you're in the project directory and venv is activated
-cd /Users/akshitgupta/Desktop/Gmail-Mailer
-source venv/bin/activate
+# Activate your virtual environment
+cd /path/to/Gmail-Mailer
+source venv/bin/activate   # Mac/Linux
+# OR
+.\venv\Scripts\activate     # Windows
 ```
 
-### Step 1: Install Playwright Browsers (Important!)
+### Step 1: Install Playwright Browsers (on build machine)
 ```bash
 python -m playwright install chromium
 ```
 
-### Step 2: Build with PyInstaller
+### Step 2: Build
 ```bash
 pyinstaller build_app.spec
 ```
 
-### Step 3: Test the .exe
-The .exe will be in `dist/GmailMailerPro.exe`
-
-## How It Works on Windows
-
-1. **First Run**: App checks if browsers are installed. If not, installs them to:
-   - `C:\Users\{username}\AppData\Local\Temp\playwright_browsers\`
-
-2. **Browser Path**: The app sets environment variable:
-   ```python
-   PLAYWRIGHT_BROWSERS_PATH = C:\Users\{username}\AppData\Local\Temp\playwright_browsers\
-   ```
-
-3. **Attachment Handling**: Temporary attachment files go to:
-   - `C:\Users\{username}\AppData\Local\Temp\gmail_mailer_attachments\`
+### Step 3: Test
+- The `.exe` will be in `dist/GmailMailerPro.exe`
+- **First run** will show a setup dialog and download Chromium (~150MB)
+- Subsequent runs will start instantly
+- Console window will show debug output (change `console=True` to `False` in spec when confirmed working)
 
 ## Troubleshooting
 
-### If still getting browser errors:
-1. **Manual Installation** (on Windows machine):
-   ```bash
-   # After extracting the .exe, open PowerShell and run:
-   python -m playwright install chromium --with-deps
+### If Chromium download fails inside .exe:
+1. **Check internet connection** - the .exe needs internet on first run to download Chromium
+2. **Check antivirus** - some AV software blocks downloading executables
+3. **Manual install** - Open PowerShell and run:
+   ```powershell
+   $env:PLAYWRIGHT_BROWSERS_PATH = "$env:LOCALAPPDATA\GmailMailerPro\playwright_browsers"
+   npx playwright install chromium
    ```
 
-2. **Check if Playwright is installed**:
-   - Look for: `C:\Users\{username}\AppData\Local\Temp\playwright_browsers\chromium-1217`
-   - Should contain `chrome-headless-shell.exe`
+### If you see "compute_driver_executable" errors:
+- The Playwright driver binary wasn't bundled correctly
+- Verify the `pw_driver_binaries` section in `build_app.spec` found files
+- Check that `playwright/driver/` directory exists in your venv's site-packages
 
-3. **Enable Console for Debugging**:
-   - Edit `build_app.spec`, change `console=False` to `console=True`
-   - Rebuild to see detailed error messages
-
-## Key Changes Summary
-
-| File | Change | Reason |
-|------|--------|--------|
-| `main.py` | Added `setup_playwright_env()` | Set correct browser path for .exe |
-| `main.py` | Updated `install_browsers()` | Make it work in frozen apps |
-| `build_app.spec` | Added `collect_submodules('playwright')` | Bundle all Playwright code |
-| `build_app.spec` | Added PIL and PPTX data | Include all image conversion libs |
-
-## Expected Behavior After Fix
-
-✅ Standalone .exe launches normally  
-✅ Attachments (PDF, PNG, PPTX, etc.) convert successfully  
-✅ Emails send with attachments attached  
-✅ No "Executable doesn't exist" errors  
+### Console window shows up:
+- This is intentional for debugging. Once everything works:
+- Edit `build_app.spec` → change `console=True` to `console=False` → rebuild
 
 ## Files Modified
-- `/Users/akshitgupta/Desktop/Gmail-Mailer/main.py` ✓
-- `/Users/akshitgupta/Desktop/Gmail-Mailer/build_app.spec` ✓
+- `main.py` - Fixed browser install logic + persistent path + pre-launch checks
+- `build_app.spec` - Added Playwright driver binaries + driver hidden import + console=True

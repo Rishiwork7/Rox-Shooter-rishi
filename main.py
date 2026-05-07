@@ -19,16 +19,20 @@ import xlsxwriter
 import subprocess
 import sys
 import uuid
+import glob
 
 # Configure Playwright browser path for PyInstaller bundles
 def setup_playwright_env():
     """Setup environment for Playwright in frozen/bundled apps."""
     if getattr(sys, 'frozen', False):
-        # Running as .exe - set Playwright to use browsers from the bundle or temp location
-        # Playwright will look in this order:
-        # 1. PLAYWRIGHT_BROWSERS_PATH environment variable
-        # 2. ~/.cache/ms-playwright (default)
-        browser_cache = os.path.join(tempfile.gettempdir(), "playwright_browsers")
+        # Running as .exe - use a persistent location in user's AppData (not Temp)
+        # Temp can get cleaned up by Windows, causing re-downloads
+        if sys.platform == 'win32':
+            base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+            browser_cache = os.path.join(base, "GmailMailerPro", "playwright_browsers")
+        else:
+            browser_cache = os.path.join(os.path.expanduser('~'), ".gmail_mailer", "playwright_browsers")
+        os.makedirs(browser_cache, exist_ok=True)
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = browser_cache
     
 setup_playwright_env()
@@ -36,26 +40,75 @@ setup_playwright_env()
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+def _check_browser_installed():
+    """Check if Chromium browser binaries already exist."""
+    browsers_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
+    if not browsers_path:
+        return True  # Let Playwright handle default paths
+    
+    # Look for any chromium folder with the executable inside
+    if sys.platform == 'win32':
+        # Windows: look for chrome-headless-shell.exe or chrome.exe
+        patterns = [
+            os.path.join(browsers_path, '**', 'chrome-headless-shell.exe'),
+            os.path.join(browsers_path, '**', 'chrome.exe'),
+            os.path.join(browsers_path, '**', 'chromium.exe'),
+        ]
+    else:
+        patterns = [
+            os.path.join(browsers_path, '**', 'chrome'),
+            os.path.join(browsers_path, '**', 'chromium'),
+        ]
+    
+    for pattern in patterns:
+        if glob.glob(pattern, recursive=True):
+            return True
+    return False
+
 def install_browsers():
-    """Ensure playwright browsers are installed without recursive calls."""
-    if getattr(sys, 'frozen', False):
-        # In a frozen app, try to install browsers to the temp cache location
-        try:
-            browser_cache = os.path.join(tempfile.gettempdir(), "playwright_browsers")
-            os.makedirs(browser_cache, exist_ok=True)
-            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = browser_cache
-            # Use Python executable from the frozen environment
-            subprocess.run([
-                sys.executable, "-m", "playwright", "install", "chromium"
-            ], capture_output=True, timeout=120)
-        except Exception as e:
-            print(f"Browser installation in frozen app: {e}")
-        return
+    """Ensure playwright browsers are installed. Uses Playwright's internal CLI directly."""
+    if _check_browser_installed():
+        return  # Already installed, skip
+    
     try:
-        import subprocess
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True)
-    except:
-        pass
+        # Use Playwright's own CLI module directly - works in frozen apps
+        # This bypasses the need for sys.executable to be a Python interpreter
+        from playwright._impl._driver import compute_driver_executable
+        driver_executable = compute_driver_executable()
+        
+        env = os.environ.copy()
+        # Ensure PLAYWRIGHT_BROWSERS_PATH is set
+        if 'PLAYWRIGHT_BROWSERS_PATH' not in env:
+            if getattr(sys, 'frozen', False):
+                if sys.platform == 'win32':
+                    base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+                    env['PLAYWRIGHT_BROWSERS_PATH'] = os.path.join(base, "GmailMailerPro", "playwright_browsers")
+                else:
+                    env['PLAYWRIGHT_BROWSERS_PATH'] = os.path.join(os.path.expanduser('~'), ".gmail_mailer", "playwright_browsers")
+        
+        # Run: node playwright-driver install chromium
+        result = subprocess.run(
+            [str(driver_executable), 'install', 'chromium'],
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 min timeout for slow connections
+            env=env
+        )
+        if result.returncode == 0:
+            print("Playwright Chromium installed successfully.")
+        else:
+            print(f"Playwright install stderr: {result.stderr}")
+    except Exception as e:
+        print(f"Browser installation error: {e}")
+        # Fallback: try the subprocess approach for non-frozen environments
+        if not getattr(sys, 'frozen', False):
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "chromium"],
+                    capture_output=True, timeout=300
+                )
+            except:
+                pass
 
 class TextParser:
     def __init__(self):
@@ -131,9 +184,23 @@ class Converter:
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
 
+    async def _ensure_browser(self):
+        """Ensure Chromium is installed before launching. Installs on first use if needed."""
+        if not _check_browser_installed():
+            self.log("Browser not found. Installing Chromium (first-time setup, please wait)...")
+            install_browsers()
+            if not _check_browser_installed():
+                raise RuntimeError(
+                    "Chromium browser could not be installed automatically.\n"
+                    "Please run this command manually in a terminal/command prompt:\n"
+                    "  playwright install chromium"
+                )
+            self.log("Chromium installed successfully.")
+
     async def html_to_pdf(self, html_content, filename="attachment.pdf"):
         path = os.path.join(self.temp_dir, filename)
         try:
+            await self._ensure_browser()
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page()
@@ -148,6 +215,7 @@ class Converter:
     async def html_to_image(self, html_content, filename="attachment.png"):
         path = os.path.join(self.temp_dir, filename)
         try:
+            await self._ensure_browser()
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
                 page = await browser.new_page()
@@ -988,8 +1056,26 @@ if __name__ == "__main__":
     # Essential for PyInstaller standalone executables
     multiprocessing.freeze_support()
     
-    # Always try to ensure browsers are installed (works for both source and frozen)
-    threading.Thread(target=install_browsers, daemon=True).start()
+    # Pre-install browsers on startup (non-blocking for frozen apps)
+    # If browsers are already installed, this returns immediately
+    if getattr(sys, 'frozen', False) and not _check_browser_installed():
+        # Show a simple Tk progress window during first-run browser download
+        import tkinter.messagebox as tkmb
+        root = tk.Tk()
+        root.withdraw()
+        tkmb.showinfo(
+            "First-Time Setup",
+            "Gmail Mailer Pro needs to download browser components (Chromium).\n\n"
+            "This is a one-time setup and may take 1-2 minutes.\n"
+            "Click OK to begin downloading."
+        )
+        root.destroy()
+        
+        # Run the install synchronously so the app doesn't start without browsers
+        install_browsers()
+    else:
+        # For non-frozen (dev) environments, install in background
+        threading.Thread(target=install_browsers, daemon=True).start()
         
     app = App()
     app.mainloop()
