@@ -134,16 +134,26 @@ class Converter:
             return None
 
     async def html_to_pptx(self, html_content, filename="attachment.pptx"):
-        """Direct-ish conversion: Adds HTML text content to a PPTX slide."""
+        """Direct text conversion: Adds cleaned HTML text to a PPTX slide."""
         path = os.path.join(self.temp_dir, filename)
         try:
-            # Strip HTML tags for a 'direct' text representation
-            clean_text = re.sub('<[^<]+?>', '', html_content).strip()
+            # Better text cleaning
+            clean_text = re.sub('<br\s*/?>', '\n', html_content, flags=re.IGNORECASE)
+            clean_text = re.sub('<[^<]+?>', '', clean_text).strip()
+            
             prs = Presentation()
-            slide = prs.slides.add_slide(prs.slide_layouts[1]) # Title and Content
-            slide.shapes.title.text = "Automated Report"
-            slide.placeholders[1].text = clean_text[:1000] # Limit for slide readability
+            slide_layout = prs.slide_layouts[1] # Title and Content
+            slide = prs.slides.add_slide(slide_layout)
+            
+            title = slide.shapes.title
+            title.text = "Business Proposal" # Professional default
+            
+            content = slide.placeholders[1]
+            content.text = clean_text[:2000] # Increased limit
+            
             prs.save(path)
+            # Small delay to ensure OS file system flushes
+            await asyncio.sleep(0.5)
             return path
         except Exception as e:
             self.log(f"Direct PPTX Error: {e}")
@@ -716,9 +726,19 @@ class App(ctk.CTk):
 
             # Upload Attachment
             if attachment_path and os.path.exists(attachment_path):
-                self.log(f"[W{window_id}] Uploading attachment...")
-                await page.locator('input[type="file"]').set_input_files(attachment_path)
-                await asyncio.sleep(2.0) # Attachments still need a bit of time
+                self.log(f"[W{window_id}] Uploading attachment: {os.path.basename(attachment_path)}...")
+                # More robust way to find the file input in Gmail's compose
+                file_input = page.locator('input[type="file"][name="Filedata"], input[type="file"]').last
+                await file_input.set_input_files(attachment_path)
+                
+                # Wait for attachment to appear in UI (chip)
+                try:
+                    await page.wait_for_selector('div[role="link"][aria-label*="Attachment"]', timeout=10000)
+                    self.log(f"[W{window_id}] Attachment uploaded successfully.")
+                except:
+                    self.log(f"[W{window_id}] Warning: Attachment chip not detected, but continuing...")
+                
+                await asyncio.sleep(3.0) # Buffer for large files
 
             # Send
             self.log(f"[W{window_id}] Clicking Send...")
