@@ -1,28 +1,38 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_data_files
+import sys
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-# Collect all playwright data (crucial for browsers)
+# Collect all playwright data (crucial for browsers and dependencies)
 playwright_data = collect_data_files('playwright')
+playwright_submodules = collect_submodules('playwright')
+
+# Additional data for other packages
+pptx_data = collect_data_files('pptx')
+PIL_data = collect_data_files('PIL')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=playwright_data + [
+    datas=playwright_data + pptx_data + PIL_data + [
         ('requirements.txt', '.'),
     ],
     hiddenimports=[
         'playwright.async_api',
+        'playwright._impl._browser',
+        'playwright._impl._browser_context',
+        'playwright._impl._page',
         'pandas',
         'xlsxwriter',
         'pptx',
         'customtkinter',
         'darkdetect',
-        'PIL.Image'
-    ],
+        'PIL.Image',
+        'PIL.PngImagePlugin',
+    ] + playwright_submodules,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -20,14 +20,36 @@ import subprocess
 import sys
 import uuid
 
+# Configure Playwright browser path for PyInstaller bundles
+def setup_playwright_env():
+    """Setup environment for Playwright in frozen/bundled apps."""
+    if getattr(sys, 'frozen', False):
+        # Running as .exe - set Playwright to use browsers from the bundle or temp location
+        # Playwright will look in this order:
+        # 1. PLAYWRIGHT_BROWSERS_PATH environment variable
+        # 2. ~/.cache/ms-playwright (default)
+        browser_cache = os.path.join(tempfile.gettempdir(), "playwright_browsers")
+        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = browser_cache
+    
+setup_playwright_env()
+
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 def install_browsers():
     """Ensure playwright browsers are installed without recursive calls."""
     if getattr(sys, 'frozen', False):
-        # In a frozen app, we don't use sys.executable to install
-        # Browsers should be installed during setup or bundled
+        # In a frozen app, try to install browsers to the temp cache location
+        try:
+            browser_cache = os.path.join(tempfile.gettempdir(), "playwright_browsers")
+            os.makedirs(browser_cache, exist_ok=True)
+            os.environ['PLAYWRIGHT_BROWSERS_PATH'] = browser_cache
+            # Use Python executable from the frozen environment
+            subprocess.run([
+                sys.executable, "-m", "playwright", "install", "chromium"
+            ], capture_output=True, timeout=120)
+        except Exception as e:
+            print(f"Browser installation in frozen app: {e}")
         return
     try:
         import subprocess
@@ -966,10 +988,8 @@ if __name__ == "__main__":
     # Essential for PyInstaller standalone executables
     multiprocessing.freeze_support()
     
-    # Only try to install if NOT frozen (i.e., running from source)
-    # For frozen apps, browsers should be bundled or pre-installed
-    if not getattr(sys, 'frozen', False):
-        threading.Thread(target=install_browsers, daemon=True).start()
+    # Always try to ensure browsers are installed (works for both source and frozen)
+    threading.Thread(target=install_browsers, daemon=True).start()
         
     app = App()
     app.mainloop()
