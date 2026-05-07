@@ -137,9 +137,17 @@ class Converter:
         """Direct text conversion: Adds cleaned HTML text to a PPTX slide."""
         path = os.path.join(self.temp_dir, filename)
         try:
-            # Better text cleaning
-            clean_text = re.sub('<br\s*/?>', '\n', html_content, flags=re.IGNORECASE)
+            # 1. Remove style and script blocks entirely (including their content)
+            clean_text = re.sub(r'<(style|script)[^>]*>.*?</\1>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+            
+            # 2. Replace breaks with newlines
+            clean_text = re.sub('<br\s*/?>', '\n', clean_text, flags=re.IGNORECASE)
+            
+            # 3. Strip remaining HTML tags
             clean_text = re.sub('<[^<]+?>', '', clean_text).strip()
+            
+            # 4. Collapse multiple newlines
+            clean_text = re.sub(r'\n\s*\n', '\n', clean_text)
             
             prs = Presentation()
             slide_layout = prs.slide_layouts[1] # Title and Content
