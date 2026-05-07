@@ -9,6 +9,7 @@ import shutil
 import string
 import re
 import random
+import tempfile
 from datetime import datetime
 from playwright.async_api import async_playwright
 from pptx import Presentation
@@ -101,7 +102,9 @@ class TextParser:
 class Converter:
     def __init__(self, log_callback):
         self.log = log_callback
-        self.temp_dir = os.path.abspath("temp_attachments")
+        # Use system temp directory instead of relative path
+        # This ensures compatibility with PyInstaller .exe on Windows
+        self.temp_dir = os.path.join(tempfile.gettempdir(), "gmail_mailer_attachments")
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
@@ -952,8 +955,9 @@ class App(ctk.CTk):
     def final_cleanup(self):
         try:
             self.loop.call_soon_threadsafe(self.loop.stop)
-            if os.path.exists("temp_attachments"):
-                shutil.rmtree("temp_attachments")
+            temp_attachments = os.path.join(tempfile.gettempdir(), "gmail_mailer_attachments")
+            if os.path.exists(temp_attachments):
+                shutil.rmtree(temp_attachments)
         except:
             pass
         self.destroy()
