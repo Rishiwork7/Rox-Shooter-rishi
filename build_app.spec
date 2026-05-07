@@ -1,29 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import sys
-import glob as _glob
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-# Collect all playwright data (crucial for browsers and dependencies)
+# Collect all playwright data (needed for the async_api to work)
 playwright_data = collect_data_files('playwright')
 playwright_submodules = collect_submodules('playwright')
-
-# Collect the Playwright driver binary (node + playwright CLI)
-# This is critical - without it, `compute_driver_executable()` won't find the driver
-import playwright
-pw_package_dir = os.path.dirname(playwright.__file__)
-pw_driver_dir = os.path.join(pw_package_dir, 'driver')
-pw_driver_binaries = []
-if os.path.isdir(pw_driver_dir):
-    for root, dirs, files in os.walk(pw_driver_dir):
-        for f in files:
-            src = os.path.join(root, f)
-            # Compute relative destination path within the bundle
-            rel = os.path.relpath(root, pw_package_dir)
-            dest = os.path.join('playwright', rel)
-            pw_driver_binaries.append((src, dest))
 
 # Additional data for other packages
 pptx_data = collect_data_files('pptx')
@@ -32,7 +16,7 @@ PIL_data = collect_data_files('PIL')
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=pw_driver_binaries,
+    binaries=[],
     datas=playwright_data + pptx_data + PIL_data + [
         ('requirements.txt', '.'),
     ],
