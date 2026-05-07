@@ -17,6 +17,7 @@ from PIL import Image as PILImage
 import xlsxwriter
 import subprocess
 import sys
+import uuid
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -91,7 +92,7 @@ class TextParser:
             return match.group(0) # Fallback
 
         # Match only supported tags to avoid swallowing following underscores or text
-        supported_tags = ["random", "word", "invoice_no", "rand", "number", "mail", "date", "tfn"]
+        supported_tags = ["random", "word", "invoice_no", "rand", "number", "mail", "email", "date", "tfn"]
         pattern = r"\$(" + "|".join(supported_tags) + r")(?:[\(\[])?(\d+)?(?:[\)\]])?"
         text = re.sub(pattern, replacer, text, flags=re.IGNORECASE)
 
@@ -133,46 +134,15 @@ class Converter:
             self.log(f"Image Conversion Error: {e}")
             return None
 
-    async def html_to_pptx(self, html_content, filename="attachment.pptx"):
-        """Direct text conversion: Adds cleaned HTML text to a PPTX slide."""
-        path = os.path.join(self.temp_dir, filename)
-        try:
-            # 1. Remove style and script blocks entirely (including their content)
-            clean_text = re.sub(r'<(style|script)[^>]*>.*?</\1>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-            
-            # 2. Replace breaks with newlines
-            clean_text = re.sub('<br\s*/?>', '\n', clean_text, flags=re.IGNORECASE)
-            
-            # 3. Strip remaining HTML tags
-            clean_text = re.sub('<[^<]+?>', '', clean_text).strip()
-            
-            # 4. Collapse multiple newlines
-            clean_text = re.sub(r'\n\s*\n', '\n', clean_text)
-            
-            prs = Presentation()
-            slide_layout = prs.slide_layouts[1] # Title and Content
-            slide = prs.slides.add_slide(slide_layout)
-            
-            title = slide.shapes.title
-            title.text = "Business Proposal" # Professional default
-            
-            content = slide.placeholders[1]
-            content.text = clean_text[:2000] # Increased limit
-            
-            prs.save(path)
-            # Small delay to ensure OS file system flushes
-            await asyncio.sleep(0.5)
-            return path
-        except Exception as e:
-            self.log(f"Direct PPTX Error: {e}")
-            return None
 
     async def html_to_image_pptx(self, html_content, filename="attachment_img.pptx"):
         """HTML -> Image -> PPTX Slide."""
         path = os.path.join(self.temp_dir, filename)
-        img_path = os.path.join(self.temp_dir, "temp_pptx_slide.png")
+        unique_id = uuid.uuid4().hex[:8]
+        img_name = f"temp_pptx_{unique_id}.png"
+        img_path = os.path.join(self.temp_dir, img_name)
         try:
-            await self.html_to_image(html_content, "temp_pptx_slide.png")
+            await self.html_to_image(html_content, img_name)
             prs = Presentation()
             slide = prs.slides.add_slide(prs.slide_layouts[6])
             slide.shapes.add_picture(img_path, Inches(0.5), Inches(0.5), width=Inches(9))
@@ -186,9 +156,11 @@ class Converter:
     async def html_to_image_pdf(self, html_content, filename="attachment_img.pdf"):
         """HTML -> Image -> PDF."""
         path = os.path.join(self.temp_dir, filename)
-        img_path = os.path.join(self.temp_dir, "temp_pdf_wrap.png")
+        unique_id = uuid.uuid4().hex[:8]
+        img_name = f"temp_pdf_{unique_id}.png"
+        img_path = os.path.join(self.temp_dir, img_name)
         try:
-            await self.html_to_image(html_content, "temp_pdf_wrap.png")
+            await self.html_to_image(html_content, img_name)
             img = PILImage.open(img_path)
             pdf_img = img.convert('RGB')
             pdf_img.save(path)
@@ -201,9 +173,11 @@ class Converter:
     async def html_to_image_xls(self, html_content, filename="attachment_img.xlsx"):
         """HTML -> Image -> XLS."""
         path = os.path.join(self.temp_dir, filename)
-        img_path = os.path.join(self.temp_dir, "temp_xls_insert.png")
+        unique_id = uuid.uuid4().hex[:8]
+        img_name = f"temp_xls_{unique_id}.png"
+        img_path = os.path.join(self.temp_dir, img_name)
         try:
-            await self.html_to_image(html_content, "temp_xls_insert.png")
+            await self.html_to_image(html_content, img_name)
             workbook = xlsxwriter.Workbook(path)
             worksheet = workbook.add_worksheet()
             worksheet.insert_image('B2', img_path, {'x_scale': 0.5, 'y_scale': 0.5})
@@ -304,6 +278,7 @@ class App(ctk.CTk):
         self.tab_content = self.tabview.add("Content")
         self.tab_settings = self.tabview.add("Settings")
         self.tab_blaster = self.tabview.add("Blaster")
+        self.tab_tags = self.tabview.add("Tags")
         
         self.setup_tabs()
 
@@ -351,7 +326,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(conv_col, text="Conversion Type:", font=("Inter", 13, "bold")).pack(anchor="w")
         self.conv_options = [
             "None", "HTML to raw PDF", "HTML to Image", "HTML to Image then PDF", 
-            "HTML to PPTX (Direct)", "HTML to Image then PPTX", "HTML to Image then XLS"
+            "HTML to Image then PPTX", "HTML to Image then XLS"
         ]
         self.dropdown_conversion = ctk.CTkComboBox(conv_col, values=self.conv_options, width=250)
         self.dropdown_conversion.set("HTML to raw PDF")
@@ -378,6 +353,14 @@ class App(ctk.CTk):
         self.text_html = ctk.CTkTextbox(self.content_frame, font=("Consolas", 12))
         self.text_html.pack(fill="both", expand=True, pady=(0, 10))
         
+        self.btn_preview = ctk.CTkButton(self.content_frame, text="👁 Preview Selected Format", fg_color="#6f42c1", hover_color="#59359a", 
+                                          font=("Inter", 13, "bold"), command=self.on_preview_attachment)
+        self.btn_preview.pack(pady=(0, 5))
+        
+        self.btn_preview_all = ctk.CTkButton(self.content_frame, text="📁 Preview All Formats", fg_color="#17a2b8", hover_color="#138496", 
+                                              font=("Inter", 13, "bold"), command=self.on_preview_all)
+        self.btn_preview_all.pack(pady=(0, 10))
+        
         # --- Tab 4: Settings ---
         ctk.CTkLabel(self.tab_settings, text="Configuration Settings", font=("Inter", 15, "bold")).pack(pady=15)
         
@@ -399,6 +382,40 @@ class App(ctk.CTk):
         self.btn_start_blasting = ctk.CTkButton(self.tab_blaster, text="START BLASTING", height=100, font=("Inter", 24, "bold"), 
                                                 fg_color="#fd7e14", hover_color="#e8590c", command=self.on_start_blasting)
         self.btn_start_blasting.pack(expand=True, padx=50, pady=50)
+
+        # --- Tab 6: Tags ---
+        self.setup_tags_tab()
+
+    def setup_tags_tab(self):
+        container = ctk.CTkScrollableFrame(self.tab_tags, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=20, pady=15)
+
+        ctk.CTkLabel(container, text="Available Personalization Tags", font=("Inter", 18, "bold"), text_color="#fd7e14").pack(pady=(0, 20))
+        ctk.CTkLabel(container, text="Use these tags in your Subject, Body, HTML Content, or Custom Filenames.\nThey will be automatically replaced with dynamic data during blasting.", 
+                      font=("Inter", 13), justify="left", wraplength=500).pack(pady=(0, 20))
+
+        tags_info = [
+            ("$random(length)", "Generates a mix of uppercase letters and numbers.\nExample: $random(8) -> A1B2C3D4", "#17a2b8"),
+            ("$word(length)", "Generates random uppercase letters only.\nExample: $word(6) -> KIMOXQ", "#6f42c1"),
+            ("$invoice_no(length)", "Generates numbers ending with 1-2 letters.\nExample: $invoice_no(7) -> 12345AB", "#28a745"),
+            ("$rand(length)", "Generates pure random numbers.\nExample: $rand(6) -> 982374", "#fd7e14"),
+            ("$mail", "Replaces with the recipient's email address.", "#e83e8c"),
+            ("$date", "Replaces with current date (DD-MM-YYYY).", "#6c757d"),
+            ("$tfn", "Replaces with the Toll-Free Number from Settings.", "#007bff"),
+        ]
+
+        for tag, desc, color in tags_info:
+            frame = ctk.CTkFrame(container, fg_color="#2b2b2b", corner_radius=10)
+            frame.pack(fill="x", pady=5)
+            
+            lbl_tag = ctk.CTkLabel(frame, text=tag, font=("Consolas", 14, "bold"), text_color=color, width=150)
+            lbl_tag.pack(side="left", padx=15, pady=10)
+            
+            lbl_desc = ctk.CTkLabel(frame, text=desc, font=("Inter", 12), justify="left")
+            lbl_desc.pack(side="left", padx=10, pady=10, fill="x", expand=True)
+
+        ctk.CTkLabel(container, text="Note: (length) is optional and defaults to 6 if not specified.", font=("Inter", 11, "italic"), text_color="gray").pack(pady=10)
+
 
     def create_activity_log(self):
         # Step 5: Activity Log
@@ -444,6 +461,14 @@ class App(ctk.CTk):
             self.log(f"Launching Window {window_id} with persistent profile...")
             profile_path = os.path.abspath(f"profiles/profile_{window_id}")
             os.makedirs(profile_path, exist_ok=True)
+            
+            # Force remove lock file if it exists (prevents ProcessSingleton errors)
+            lock_file = os.path.join(profile_path, "SingletonLock")
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except:
+                    pass
             
             # Start Playwright for this context
             pw = await async_playwright().start()
@@ -589,6 +614,112 @@ class App(ctk.CTk):
         else:
             self.filename_frame.pack_forget()
 
+    def on_preview_attachment(self):
+        self.run_coro(self.preview_attachment_task())
+
+    async def preview_attachment_task(self):
+        html_template = self.text_html.get("1.0", "end-1c")
+        if not html_template.strip():
+            self.log("Error: No HTML content to preview.")
+            return
+
+        conversion_type = self.dropdown_conversion.get()
+        if conversion_type == "None":
+            self.log("Error: Conversion type is 'None'. Choose a type to preview.")
+            return
+
+        self.log(f"Generating preview for {conversion_type}...")
+        
+        # Parse with dummy data
+        tfn = self.entry_tfn.get() or "1-800-PREVIEW"
+        parsed_html = self.parser.parse(html_template, "preview@example.com", tfn)
+        
+        # Extension
+        ext = ".pdf"
+        if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type:
+            ext = ".png"
+        elif "PPTX" in conversion_type:
+            ext = ".pptx"
+        elif "XLS" in conversion_type:
+            ext = ".xlsx"
+            
+        filename = f"preview_test{ext}"
+        path = None
+        
+        try:
+            if conversion_type == "HTML to raw PDF":
+                path = await self.converter.html_to_pdf(parsed_html, filename)
+            elif conversion_type == "HTML to Image":
+                path = await self.converter.html_to_image(parsed_html, filename)
+            elif conversion_type == "HTML to Image then PDF":
+                path = await self.converter.html_to_image_pdf(parsed_html, filename)
+
+            elif conversion_type == "HTML to Image then PPTX":
+                path = await self.converter.html_to_image_pptx(parsed_html, filename)
+            elif conversion_type == "HTML to Image then XLS":
+                path = await self.converter.html_to_image_xls(parsed_html, filename)
+            
+            if path and os.path.exists(path):
+                self.log(f"Preview generated: {path}")
+                # Open the file based on OS
+                if sys.platform == "darwin":
+                    subprocess.run(["open", path])
+                elif sys.platform == "win32":
+                    os.startfile(path)
+                else:
+                    try:
+                        subprocess.run(["xdg-open", path])
+                    except:
+                        self.log(f"File saved at: {path} (Could not open automatically)")
+            else:
+                self.log("Error: Failed to generate preview file.")
+        except Exception as e:
+            self.log(f"Preview Error: {e}")
+
+    def on_preview_all(self):
+        self.run_coro(self.preview_all_task())
+
+    async def preview_all_task(self):
+        html_template = self.text_html.get("1.0", "end-1c")
+        if not html_template.strip():
+            self.log("Error: No HTML content to preview.")
+            return
+
+        self.log("Generating previews for ALL formats. This may take a moment...")
+        
+        # Parse with dummy data
+        tfn = self.entry_tfn.get() or "1-800-PREVIEW"
+        parsed_html = self.parser.parse(html_template, "preview@example.com", tfn)
+        
+        tasks = [
+            ("PDF", self.converter.html_to_pdf(parsed_html, "preview_all_pdf.pdf")),
+            ("Image", self.converter.html_to_image(parsed_html, "preview_all_img.png")),
+            ("Image then PDF", self.converter.html_to_image_pdf(parsed_html, "preview_all_img_pdf.pdf")),
+
+            ("Image then PPTX", self.converter.html_to_image_pptx(parsed_html, "preview_all_img_pptx.pptx")),
+            ("Image then XLS", self.converter.html_to_image_xls(parsed_html, "preview_all_img_xls.xlsx"))
+        ]
+        
+        for name, coro in tasks:
+            try:
+                self.log(f"Generating {name}...")
+                path = await coro
+                if path and os.path.exists(path):
+                    self.log(f"{name} generated: {path}")
+                    # Open the file
+                    if sys.platform == "darwin":
+                        subprocess.run(["open", path])
+                    elif sys.platform == "win32":
+                        os.startfile(path)
+                    else:
+                        subprocess.run(["xdg-open", path], capture_output=True)
+                else:
+                    self.log(f"Error: Failed to generate {name}.")
+            except Exception as e:
+                self.log(f"Error generating {name}: {e}")
+        
+        self.log("All previews generated.")
+
     def on_start_blasting(self):
         if self.is_blasting:
             self.is_blasting = False
@@ -669,8 +800,7 @@ class App(ctk.CTk):
                     attachment_path = await self.converter.html_to_image(parsed_html, final_filename)
                 elif conversion_type == "HTML to Image then PDF":
                     attachment_path = await self.converter.html_to_image_pdf(parsed_html, final_filename)
-                elif conversion_type == "HTML to PPTX (Direct)":
-                    attachment_path = await self.converter.html_to_pptx(parsed_html, final_filename)
+
                 elif conversion_type == "HTML to Image then PPTX":
                     attachment_path = await self.converter.html_to_image_pptx(parsed_html, final_filename)
                 elif conversion_type == "HTML to Image then XLS":
@@ -735,24 +865,55 @@ class App(ctk.CTk):
             # Upload Attachment
             if attachment_path and os.path.exists(attachment_path):
                 self.log(f"[W{window_id}] Uploading attachment: {os.path.basename(attachment_path)}...")
-                # More robust way to find the file input in Gmail's compose
-                file_input = page.locator('input[type="file"][name="Filedata"], input[type="file"]').last
-                await file_input.set_input_files(attachment_path)
                 
-                # Wait for attachment to appear in UI (chip)
+                upload_success = False
                 try:
-                    await page.wait_for_selector('div[role="link"][aria-label*="Attachment"]', timeout=10000)
-                    self.log(f"[W{window_id}] Attachment uploaded successfully.")
-                except:
-                    self.log(f"[W{window_id}] Warning: Attachment chip not detected, but continuing...")
-                
-                await asyncio.sleep(3.0) # Buffer for large files
+                    # Method 1: Using expect_file_chooser (More robust for modern Gmail)
+                    async with page.expect_file_chooser() as fc_info:
+                        # Click the "Attach files" button (paperclip)
+                        # We try multiple selectors for the attach button
+                        attach_btn = page.locator('div[command="Files"][aria-label*="Attach files"], div[aria-label*="Attach files"]').first
+                        await attach_btn.click(timeout=5000)
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(attachment_path)
+                    upload_success = True
+                except Exception as e:
+                    self.log(f"[W{window_id}] Method 1 (File Chooser) failed: {e}. Trying Method 2...")
+                    try:
+                        # Method 2: Direct set_input_files on hidden input
+                        file_input = page.locator('input[type="file"][name="Filedata"], input[type="file"]').last
+                        await file_input.set_input_files(attachment_path)
+                        upload_success = True
+                    except Exception as e2:
+                        self.log(f"[W{window_id}] Method 2 (Direct Input) failed: {e2}")
+
+                if upload_success:
+                    self.log(f"[W{window_id}] Attachment initiated. Sending directly...")
+                    await asyncio.sleep(0.5) # Minimal buffer for Gmail UI
 
             # Send
             self.log(f"[W{window_id}] Clicking Send...")
-            # Use a more specific selector for the primary Send button
-            await page.locator('div[role="button"][aria-label^="Send"]').first.click()
-            await asyncio.sleep(1.0) # Ensure send triggers
+            try:
+                # Use a more robust selector for the Send button
+                # Gmail's send button usually contains "Send" in aria-label
+                send_btn = page.locator('div[role="button"][aria-label*="Send"], div[role="button"]:has-text("Send")').first
+                await send_btn.click(timeout=7000)
+            except Exception as e:
+                self.log(f"[W{window_id}] Click failed or timed out: {e}. Trying keyboard shortcut...")
+                # Fallback: Gmail shortcut for Send is Ctrl+Enter (or Cmd+Enter on Mac)
+                # We try both to be sure
+                await page.keyboard.press("Control+Enter")
+                await asyncio.sleep(0.5)
+                # If still not sent, try Meta+Enter for Mac
+                await page.keyboard.press("Meta+Enter")
+            
+            # Optional: Wait for "Message sent" confirmation
+            try:
+                await page.wait_for_selector('span:has-text("Message sent"), span:has-text("Sending")', timeout=5000)
+                self.log(f"[W{window_id}] Send confirmed.")
+            except:
+                pass
+                
             return True
 
         except Exception as e:
