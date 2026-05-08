@@ -357,19 +357,20 @@ class App(ctk.CTk):
         self.tabview = ctk.CTkTabview(
             self.main_container, corner_radius=12,
             fg_color=COLOR["surface"], border_width=1, border_color=COLOR["border"],
-            segmented_button_fg_color=COLOR["surface_alt"],
+            segmented_button_fg_color=COLOR["surface"], # White bar creates visible gaps
             segmented_button_selected_color=COLOR["surface"],
-            segmented_button_selected_hover_color=COLOR["surface"],
             segmented_button_unselected_color=COLOR["surface_alt"],
-            segmented_button_unselected_hover_color=COLOR["border"]
+            segmented_button_selected_hover_color=COLOR["surface"],
+            segmented_button_unselected_hover_color="#CBD5E1"
         )
-        # Configure internal segmented button for "Box" tab look
+        # Fix tab colors and spacing appearance
         try:
             self.tabview._segmented_button.configure(
                 font=("Inter", 12, "bold"),
-                corner_radius=0,
-                selected_text_color=COLOR["primary"],
-                unselected_text_color=COLOR["text_sec"]
+                corner_radius=6, # Slightly rounded box
+                text_color="#000000",
+                unselected_color=COLOR["surface_alt"],
+                selected_color=COLOR["surface"]
             )
         except:
             pass
@@ -739,7 +740,7 @@ class App(ctk.CTk):
         btn_gmail.pack(side="left", padx=4)
 
         btn_close = ctk.CTkButton(
-            row, text="End Process", width=80, height=30, corner_radius=6,
+            row, text="End", width=60, height=30, corner_radius=6,
             fg_color=COLOR["surface"], hover_color=COLOR["border"], text_color=COLOR["danger"],
             border_width=1, border_color=COLOR["danger"],
             font=("Inter", 11, "bold"),
