@@ -358,11 +358,21 @@ class App(ctk.CTk):
             self.main_container, corner_radius=12,
             fg_color=COLOR["surface"], border_width=1, border_color=COLOR["border"],
             segmented_button_fg_color=COLOR["surface_alt"],
-            segmented_button_selected_color=COLOR["primary"],
-            segmented_button_selected_hover_color=COLOR["primary_hov"],
+            segmented_button_selected_color=COLOR["surface"],
+            segmented_button_selected_hover_color=COLOR["surface"],
             segmented_button_unselected_color=COLOR["surface_alt"],
             segmented_button_unselected_hover_color=COLOR["border"]
         )
+        # Configure internal segmented button for "Box" tab look
+        try:
+            self.tabview._segmented_button.configure(
+                font=("Inter", 12, "bold"),
+                corner_radius=0,
+                selected_text_color=COLOR["primary"],
+                unselected_text_color=COLOR["text_sec"]
+            )
+        except:
+            pass
         self.tabview.grid(row=0, column=1, sticky="nsew")
 
         self.tab_data = self.tabview.add("Target Contacts")
@@ -547,8 +557,8 @@ class App(ctk.CTk):
         ctk.CTkLabel(shooter_card, text="Ready to send?", font=("Inter", 14), text_color=COLOR["text_sec"]).pack(pady=(0, 16))
 
         self.btn_start_shooting = ctk.CTkButton(
-            shooter_card, text="🚀  START SENDING", height=64, width=300,
-            corner_radius=12, font=("Inter", 20, "bold"),
+            shooter_card, text="START SENDING", height=56, width=280,
+            corner_radius=28, font=("Inter", 16, "bold"),
             fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
             text_color="#FFFFFF", command=self.on_start_shooting
         )
@@ -946,11 +956,11 @@ class App(ctk.CTk):
     def on_start_shooting(self):
         if self.is_shooting:
             self.is_shooting = False
-            self.btn_start_shooting.configure(text="🚀  START SENDING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
+            self.btn_start_shooting.configure(text="START SENDING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
             self.log("Sending PAUSED. Waiting for current tasks to finish...")
         else:
             self.is_shooting = True
-            self.btn_start_shooting.configure(text="⏹  STOP SENDING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
+            self.btn_start_shooting.configure(text="STOP SENDING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
             self.run_coro(self.shooter_engine_task())
 
     async def shooter_engine_task(self):
