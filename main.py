@@ -20,8 +20,37 @@ import subprocess
 import sys
 import uuid
 
-ctk.set_appearance_mode("Dark")
+ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
+
+# ── Light Theme Color Palette ──
+COLOR = {
+    "bg":           "#F5F7FA",
+    "surface":      "#FFFFFF",
+    "surface_alt":  "#EEF1F6",
+    "border":       "#DDE2EA",
+    "text":         "#1E293B",
+    "text_sec":     "#64748B",
+    "primary":      "#4F6DF5",
+    "primary_hov":  "#3B5BDB",
+    "success":      "#22C55E",
+    "success_hov":  "#16A34A",
+    "danger":       "#EF4444",
+    "danger_hov":   "#DC2626",
+    "warn":         "#F59E0B",
+    "warn_hov":     "#D97706",
+    "muted":        "#94A3B8",
+    "muted_hov":    "#64748B",
+    "accent":       "#8B5CF6",
+    "accent_hov":   "#7C3AED",
+    "info":         "#0EA5E9",
+    "info_hov":     "#0284C7",
+    "input_bg":     "#F1F5F9",
+    "input_border": "#CBD5E1",
+    "log_bg":       "#F8FAFC",
+    "log_text":     "#334155",
+    "tag_card":     "#F1F5F9",
+}
 
 class TextParser:
     def __init__(self):
@@ -92,7 +121,7 @@ class Converter:
         self.log = log_callback
         # Use system temp directory instead of relative path
         # This ensures compatibility with PyInstaller .exe on Windows
-        self.temp_dir = os.path.join(tempfile.gettempdir(), "gmail_mailer_attachments")
+        self.temp_dir = os.path.join(tempfile.gettempdir(), "rox_shooter_attachments")
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
         os.makedirs(self.temp_dir, exist_ok=True)
@@ -192,9 +221,10 @@ class App(ctk.CTk):
         super().__init__()
 
         # --- Window Configuration ---
-        self.title("Elite Gmail Blaster | Automation Suite")
-        self.geometry("1200x850")
-        
+        self.title("Rox-Shooter v1.1")
+        self.geometry("1340x920")
+        self.configure(fg_color=COLOR["bg"])
+
         # UI Scaling/State
         self.after(0, lambda: self.state('zoomed'))
         
@@ -202,7 +232,7 @@ class App(ctk.CTk):
         self.log_queue = queue.Queue()
         self.loop = None
         self.thread = None
-        self.is_blasting = False
+        self.is_shooting = False
         self.contexts = {} # {id: {"context": context, "page": page, "frame": frame}}
         self.parser = TextParser()
         self.converter = Converter(self.log)
@@ -214,6 +244,7 @@ class App(ctk.CTk):
         
         # --- UI Construction ---
         self.setup_grid()
+        self.create_header_bar()
         self.create_launch_controls()
         self.create_main_container()
         self.create_activity_log()
@@ -228,201 +259,350 @@ class App(ctk.CTk):
 
     def setup_grid(self):
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=0) # Launch Controls
-        self.grid_rowconfigure(1, weight=1) # Main Content (Active Windows + Tabs)
-        self.grid_rowconfigure(2, weight=0) # Activity Log
+        self.grid_rowconfigure(0, weight=0)  # Header Bar
+        self.grid_rowconfigure(1, weight=0)  # Window Management
+        self.grid_rowconfigure(2, weight=1)  # Main Content
+        self.grid_rowconfigure(3, weight=0)  # Activity Logs
+
+    def create_header_bar(self):
+        """Branded header with Gmail-style logo text and Rox avatar."""
+        header = ctk.CTkFrame(self, fg_color=COLOR["surface"], corner_radius=0, height=56)
+        header.grid(row=0, column=0, sticky="nsew")
+        header.grid_columnconfigure(1, weight=1)
+
+        # Logo text
+        logo_frame = ctk.CTkFrame(header, fg_color="transparent")
+        logo_frame.pack(side="left", padx=24, pady=12)
+        ctk.CTkLabel(logo_frame, text="R", font=("Inter", 22, "bold"), text_color="#4285F4").pack(side="left")
+        ctk.CTkLabel(logo_frame, text="OX-", font=("Inter", 22, "bold"), text_color=COLOR["text"]).pack(side="left")
+        ctk.CTkLabel(logo_frame, text="SHOOTER", font=("Inter", 22, "bold"), text_color=COLOR["primary"]).pack(side="left")
+        ctk.CTkLabel(logo_frame, text="  —  v1.1", font=("Inter", 13), text_color=COLOR["text_sec"]).pack(side="left", padx=(4, 0))
+
+        # Rox avatar circle (top-right)
+        avatar_frame = ctk.CTkFrame(header, fg_color="transparent")
+        avatar_frame.pack(side="right", padx=24, pady=10)
+        avatar = ctk.CTkButton(
+            avatar_frame, text="S", width=36, height=36, corner_radius=18,
+            fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
+            text_color="#FFFFFF", font=("Inter", 16, "bold"), state="disabled"
+        )
+        avatar.pack(side="right")
+        ctk.CTkLabel(avatar_frame, text="Shooter", font=("Inter", 12, "bold"), text_color=COLOR["text"]).pack(side="right", padx=(0, 8))
 
     def create_launch_controls(self):
-        # Step 2: "Launch Controls" frame
-        self.launch_frame = ctk.CTkFrame(self, height=80)
-        self.launch_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="nsew")
-        
-        ctk.CTkLabel(self.launch_frame, text="Number of Windows:", font=("Inter", 13, "bold")).pack(side="left", padx=(20, 5), pady=20)
-        
-        self.entry_num_windows = ctk.CTkEntry(self.launch_frame, width=60, placeholder_text="1")
+        # ── Window Management Bar ──
+        self.launch_frame = ctk.CTkFrame(self, fg_color=COLOR["surface"], corner_radius=12, border_width=1, border_color=COLOR["border"])
+        self.launch_frame.grid(row=1, column=0, padx=24, pady=(12, 8), sticky="nsew")
+
+        # Left group: session controls
+        left_group = ctk.CTkFrame(self.launch_frame, fg_color="transparent")
+        left_group.pack(side="left", padx=(20, 10), pady=14)
+
+        ctk.CTkLabel(left_group, text="🖥  Window Management", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(side="left", padx=(0, 16))
+
+        ctk.CTkLabel(left_group, text="Sessions:", font=("Inter", 12), text_color=COLOR["text_sec"]).pack(side="left", padx=(0, 6))
+
+        self.entry_num_windows = ctk.CTkEntry(left_group, width=56, height=34, corner_radius=8,
+                                               fg_color=COLOR["input_bg"], border_color=COLOR["input_border"],
+                                               text_color=COLOR["text"], placeholder_text="1", font=("Inter", 13))
         self.entry_num_windows.insert(0, "1")
-        self.entry_num_windows.pack(side="left", padx=5, pady=20)
-        
-        self.btn_launch = ctk.CTkButton(self.launch_frame, text="Launch Windows", fg_color="#28a745", hover_color="#218838", font=("Inter", 13, "bold"), command=self.on_launch_windows)
-        self.btn_launch.pack(side="left", padx=10, pady=20)
-        
-        self.btn_terminate = ctk.CTkButton(self.launch_frame, text="Terminate All", fg_color="#dc3545", hover_color="#c82333", font=("Inter", 13, "bold"), command=self.on_terminate_all)
-        self.btn_terminate.pack(side="left", padx=5, pady=20)
-        
-        self.btn_clear_log = ctk.CTkButton(self.launch_frame, text="Clear Log", fg_color="#6c757d", hover_color="#5a6268", font=("Inter", 13, "bold"), command=self.on_clear_log)
-        self.btn_clear_log.pack(side="left", padx=5, pady=20)
-        
-        self.btn_reset = ctk.CTkButton(self.launch_frame, text="Reset", fg_color="#17a2b8", hover_color="#138496", font=("Inter", 13, "bold"), command=self.on_reset)
-        self.btn_reset.pack(side="left", padx=5, pady=20)
+        self.entry_num_windows.pack(side="left", padx=(0, 10))
+
+        self.btn_launch = ctk.CTkButton(left_group, text="Initialize Session(s)", height=34, corner_radius=8,
+                                         fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
+                                         text_color="#FFFFFF", font=("Inter", 12, "bold"), command=self.on_launch_windows)
+        self.btn_launch.pack(side="left", padx=(0, 8))
+
+        self.btn_terminate = ctk.CTkButton(left_group, text="Force Close All", height=34, corner_radius=8,
+                                            fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"],
+                                            text_color="#FFFFFF", font=("Inter", 12, "bold"), command=self.on_terminate_all)
+        self.btn_terminate.pack(side="left", padx=(0, 8))
+
+        # Right group: utility actions
+        right_group = ctk.CTkFrame(self.launch_frame, fg_color="transparent")
+        right_group.pack(side="right", padx=(10, 20), pady=14)
+
+        self.btn_reset = ctk.CTkButton(right_group, text="Full System Reset", width=130, height=34, corner_radius=8,
+                                        fg_color=COLOR["surface_alt"], hover_color=COLOR["border"],
+                                        text_color=COLOR["text"], border_width=1, border_color=COLOR["border"],
+                                        font=("Inter", 12, "bold"), command=self.on_reset)
+        self.btn_reset.pack(side="right", padx=(8, 0))
+
+        self.btn_clear_log = ctk.CTkButton(right_group, text="Erase Logs", width=100, height=34, corner_radius=8,
+                                            fg_color=COLOR["surface_alt"], hover_color=COLOR["border"],
+                                            text_color=COLOR["text"], border_width=1, border_color=COLOR["border"],
+                                            font=("Inter", 12, "bold"), command=self.on_clear_log)
+        self.btn_clear_log.pack(side="right")
 
     def create_main_container(self):
-        # Main layout: Left (Active Windows), Right (Configuration Tabs)
+        # Main layout: Left (Active Sessions), Right (Settings Tabs)
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_container.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
-        
-        self.main_container.grid_columnconfigure(0, weight=1) # Active Windows
-        self.main_container.grid_columnconfigure(1, weight=2) # Tabs
+        self.main_container.grid(row=2, column=0, padx=24, pady=8, sticky="nsew")
+
+        self.main_container.grid_columnconfigure(0, weight=1)  # Active Sessions
+        self.main_container.grid_columnconfigure(1, weight=2)  # Tabs
         self.main_container.grid_rowconfigure(0, weight=1)
-        
-        # Step 3: "Active Windows" frame
-        self.active_windows_frame = ctk.CTkScrollableFrame(self.main_container, label_text="Active Windows Manager", label_font=("Inter", 14, "bold"))
-        self.active_windows_frame.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
-        
-        # Step 4: CTkTabview for Configuration
-        self.tabview = ctk.CTkTabview(self.main_container)
+
+        # ── Active Sessions Panel ──
+        self.active_windows_frame = ctk.CTkScrollableFrame(
+            self.main_container, label_text="⚡  Active Sessions",
+            label_font=("Inter", 14, "bold"),
+            fg_color=COLOR["surface"], corner_radius=12,
+            border_width=1, border_color=COLOR["border"],
+            label_fg_color=COLOR["surface"]
+        )
+        self.active_windows_frame.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
+
+        # ── Settings Tabs ──
+        self.tabview = ctk.CTkTabview(
+            self.main_container, corner_radius=12,
+            fg_color=COLOR["surface"], border_width=1, border_color=COLOR["border"],
+            segmented_button_fg_color=COLOR["surface_alt"],
+            segmented_button_selected_color=COLOR["primary"],
+            segmented_button_selected_hover_color=COLOR["primary_hov"],
+            segmented_button_unselected_color=COLOR["surface_alt"],
+            segmented_button_unselected_hover_color=COLOR["border"]
+        )
         self.tabview.grid(row=0, column=1, sticky="nsew")
-        
-        self.tab_data = self.tabview.add("Data")
+
+        self.tab_data = self.tabview.add("Target Contacts")
         self.tab_subject_body = self.tabview.add("Subject & Body")
-        self.tab_content = self.tabview.add("Content")
-        self.tab_settings = self.tabview.add("Settings")
-        self.tab_blaster = self.tabview.add("Blaster")
-        self.tab_tags = self.tabview.add("Tags")
-        
+        self.tab_content = self.tabview.add("Content Options")
+        self.tab_settings = self.tabview.add("Advanced Params")
+        self.tab_shooter = self.tabview.add("Execute Send")
+        self.tab_tags = self.tabview.add("System Tags")
+
         self.setup_tabs()
 
     def setup_tabs(self):
         # --- Tab 1: Data ---
         self.data_frame = ctk.CTkFrame(self.tab_data, fg_color="transparent")
-        self.data_frame.pack(fill="both", expand=True, padx=20, pady=15)
-        
-        ctk.CTkLabel(self.data_frame, text="Recipient Emails:", font=("Inter", 13, "bold")).pack(anchor="w", pady=(0, 5))
-        
+        self.data_frame.pack(fill="both", expand=True, padx=24, pady=20)
+
+        ctk.CTkLabel(self.data_frame, text="Target Contacts", font=("Inter", 14, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 8))
+
         btn_row = ctk.CTkFrame(self.data_frame, fg_color="transparent")
-        btn_row.pack(fill="x", pady=5)
-        
-        self.btn_load_data = ctk.CTkButton(btn_row, text="📁 Load CSV / Excel / TXT", fg_color="#17a2b8", hover_color="#138496", 
-                                            command=self.handle_load_file)
-        self.btn_load_data.pack(side="left", padx=0)
-        
-        self.text_emails = ctk.CTkTextbox(self.data_frame, height=300, font=("Consolas", 12))
-        self.text_emails.pack(fill="both", expand=True, pady=10)
+        btn_row.pack(fill="x", pady=(0, 10))
+
+        self.btn_load_data = ctk.CTkButton(
+            btn_row, text="📂  Load CSV / Excel / TXT", height=36, corner_radius=8,
+            fg_color=COLOR["info"], hover_color=COLOR["info_hov"],
+            text_color="#FFFFFF", font=("Inter", 12, "bold"),
+            command=self.handle_load_file
+        )
+        self.btn_load_data.pack(side="left")
+
+        self.text_emails = ctk.CTkTextbox(
+            self.data_frame, height=300, font=("Consolas", 12),
+            fg_color=COLOR["input_bg"], text_color=COLOR["text"],
+            border_width=1, border_color=COLOR["input_border"], corner_radius=8
+        )
+        self.text_emails.pack(fill="both", expand=True, pady=(0, 10))
         self.text_emails.bind("<KeyRelease>", self.update_email_counter)
-        
-        self.lbl_email_counter = ctk.CTkLabel(self.data_frame, text="Total Emails: 0", font=("Inter", 14, "bold"), text_color="#17a2b8")
-        self.lbl_email_counter.pack(pady=5)
-        
+
+        self.lbl_email_counter = ctk.CTkLabel(
+            self.data_frame, text="Total Emails: 0",
+            font=("Inter", 14, "bold"), text_color=COLOR["primary"]
+        )
+        self.lbl_email_counter.pack(pady=(0, 4))
+
         # --- Tab 2: Subject & Body ---
-        ctk.CTkLabel(self.tab_subject_body, text="Email Subject:", font=("Inter", 13, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
-        self.entry_subject = ctk.CTkEntry(self.tab_subject_body, placeholder_text="Enter subject here...", font=("Inter", 13))
-        self.entry_subject.pack(fill="x", padx=20, pady=5)
-        
-        ctk.CTkLabel(self.tab_subject_body, text="Email Body:", font=("Inter", 13, "bold")).pack(anchor="w", padx=20, pady=(15, 5))
-        self.text_body = ctk.CTkTextbox(self.tab_subject_body, height=300, font=("Inter", 13))
-        self.text_body.pack(fill="both", expand=True, padx=20, pady=5)
+        sb_frame = ctk.CTkFrame(self.tab_subject_body, fg_color="transparent")
+        sb_frame.pack(fill="both", expand=True, padx=24, pady=20)
+
+        ctk.CTkLabel(sb_frame, text="Shooter Subject", font=("Inter", 14, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
+        self.entry_subject = ctk.CTkEntry(
+            sb_frame, placeholder_text="e.g. $invoice_no7 — Important Notice", font=("Inter", 13), height=38,
+            corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"],
+            text_color=COLOR["text"]
+        )
+        self.entry_subject.pack(fill="x", pady=(0, 16))
+
+        ctk.CTkLabel(sb_frame, text="Main Message Body", font=("Inter", 14, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
+        self.text_body = ctk.CTkTextbox(
+            sb_frame, height=300, font=("Inter", 13),
+            fg_color=COLOR["input_bg"], text_color=COLOR["text"],
+            border_width=1, border_color=COLOR["input_border"], corner_radius=8
+        )
+        self.text_body.pack(fill="both", expand=True)
         
         # --- Tab 3: Content ---
         self.content_frame = ctk.CTkFrame(self.tab_content, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True, padx=20, pady=15)
+        self.content_frame.pack(fill="both", expand=True, padx=24, pady=20)
 
         # Row 1: Conversion and Filename Mode
         row1 = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        row1.pack(fill="x", pady=(0, 10))
+        row1.pack(fill="x", pady=(0, 12))
 
         # Left: Conversion
         conv_col = ctk.CTkFrame(row1, fg_color="transparent")
         conv_col.pack(side="left", fill="x", expand=True)
-        ctk.CTkLabel(conv_col, text="Conversion Type:", font=("Inter", 13, "bold")).pack(anchor="w")
+        ctk.CTkLabel(conv_col, text="Conversion Type", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
         self.conv_options = [
-            "None", "HTML to raw PDF", "HTML to Image", "HTML to Image then PDF", 
+            "None", "HTML to raw PDF", "HTML to Image", "HTML to Image then PDF",
             "HTML to Image then PPTX", "HTML to Image then XLS"
         ]
-        self.dropdown_conversion = ctk.CTkComboBox(conv_col, values=self.conv_options, width=250)
+        self.dropdown_conversion = ctk.CTkComboBox(
+            conv_col, values=self.conv_options, width=260, height=36, corner_radius=8,
+            fg_color=COLOR["input_bg"], border_color=COLOR["input_border"],
+            text_color=COLOR["text"], button_color=COLOR["primary"],
+            button_hover_color=COLOR["primary_hov"], dropdown_fg_color=COLOR["surface"],
+            dropdown_text_color=COLOR["text"], dropdown_hover_color=COLOR["surface_alt"]
+        )
         self.dropdown_conversion.set("HTML to raw PDF")
-        self.dropdown_conversion.pack(anchor="w", pady=5)
+        self.dropdown_conversion.pack(anchor="w", pady=(0, 4))
 
         # Right: Filename Mode
         file_col = ctk.CTkFrame(row1, fg_color="transparent")
-        file_col.pack(side="left", fill="x", expand=True, padx=(20, 0))
-        ctk.CTkLabel(file_col, text="Filename Mode:", font=("Inter", 13, "bold")).pack(anchor="w")
-        self.file_mode = ctk.CTkSegmentedButton(file_col, values=["Random", "Custom"], command=self.toggle_filename_entry)
+        file_col.pack(side="left", fill="x", expand=True, padx=(24, 0))
+        ctk.CTkLabel(file_col, text="Filename Mode", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
+        self.file_mode = ctk.CTkSegmentedButton(
+            file_col, values=["Random", "Custom"], command=self.toggle_filename_entry,
+            selected_color=COLOR["primary"], selected_hover_color=COLOR["primary_hov"],
+            unselected_color=COLOR["surface_alt"], unselected_hover_color=COLOR["border"],
+            text_color=COLOR["text"], text_color_disabled=COLOR["muted"],
+            font=("Inter", 12, "bold"), corner_radius=8
+        )
         self.file_mode.set("Random")
-        self.file_mode.pack(anchor="w", pady=5)
+        self.file_mode.pack(anchor="w", pady=(0, 4))
 
         # Row 2: Custom Filename Entry
         self.filename_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         self.filename_frame.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(self.filename_frame, text="Custom Filename (Supports Tags):", font=("Inter", 12)).pack(anchor="w")
-        self.entry_filename = ctk.CTkEntry(self.filename_frame, placeholder_text="e.g. Invoice_$invoice_no7", width=400)
+        ctk.CTkLabel(self.filename_frame, text="Custom Filename (Supports Tags):", font=("Inter", 12), text_color=COLOR["text_sec"]).pack(anchor="w")
+        self.entry_filename = ctk.CTkEntry(
+            self.filename_frame, placeholder_text="e.g. Invoice_$invoice_no7", width=400, height=36,
+            corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"],
+            text_color=COLOR["text"]
+        )
         self.entry_filename.pack(anchor="w", pady=5)
-        self.filename_frame.pack_forget() # Hidden by default
+        self.filename_frame.pack_forget()  # Hidden by default
 
         # Row 3: HTML Content
-        ctk.CTkLabel(self.content_frame, text="HTML Content:", font=("Inter", 13, "bold")).pack(anchor="w", pady=(5, 5))
-        self.text_html = ctk.CTkTextbox(self.content_frame, font=("Consolas", 12))
-        self.text_html.pack(fill="both", expand=True, pady=(0, 10))
-        
-        self.btn_preview = ctk.CTkButton(self.content_frame, text="👁 Preview Selected Format", fg_color="#6f42c1", hover_color="#59359a", 
-                                          font=("Inter", 13, "bold"), command=self.on_preview_attachment)
-        self.btn_preview.pack(pady=(0, 5))
-        
-        self.btn_preview_all = ctk.CTkButton(self.content_frame, text="📁 Preview All Formats", fg_color="#17a2b8", hover_color="#138496", 
-                                              font=("Inter", 13, "bold"), command=self.on_preview_all)
-        self.btn_preview_all.pack(pady=(0, 10))
+        ctk.CTkLabel(self.content_frame, text="HTML Content", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(4, 6))
+        self.text_html = ctk.CTkTextbox(
+            self.content_frame, font=("Consolas", 12),
+            fg_color=COLOR["input_bg"], text_color=COLOR["text"],
+            border_width=1, border_color=COLOR["input_border"], corner_radius=8
+        )
+        self.text_html.pack(fill="both", expand=True, pady=(0, 12))
+
+        preview_row = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        preview_row.pack(fill="x", pady=(0, 4))
+
+        self.btn_preview = ctk.CTkButton(
+            preview_row, text="👁  Preview Selected Format", height=36, corner_radius=8,
+            fg_color=COLOR["accent"], hover_color=COLOR["accent_hov"],
+            text_color="#FFFFFF", font=("Inter", 12, "bold"), command=self.on_preview_attachment
+        )
+        self.btn_preview.pack(side="left", padx=(0, 10))
+
+        self.btn_preview_all = ctk.CTkButton(
+            preview_row, text="📁  Preview All Formats", height=36, corner_radius=8,
+            fg_color=COLOR["info"], hover_color=COLOR["info_hov"],
+            text_color="#FFFFFF", font=("Inter", 12, "bold"), command=self.on_preview_all
+        )
+        self.btn_preview_all.pack(side="left")
         
         # --- Tab 4: Settings ---
-        ctk.CTkLabel(self.tab_settings, text="Configuration Settings", font=("Inter", 15, "bold")).pack(pady=15)
-        
-        delay_frame = ctk.CTkFrame(self.tab_settings, fg_color="transparent")
-        delay_frame.pack(fill="x", padx=40, pady=10)
-        
-        ctk.CTkLabel(delay_frame, text="Delay Between Emails (seconds):", font=("Inter", 13)).pack(side="left")
-        self.entry_delay = ctk.CTkEntry(delay_frame, width=100)
+        settings_frame = ctk.CTkFrame(self.tab_settings, fg_color="transparent")
+        settings_frame.pack(fill="both", expand=True, padx=24, pady=20)
+
+        ctk.CTkLabel(settings_frame, text="Advanced Parameters", font=("Inter", 16, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 16))
+
+        # Delay card
+        delay_card = ctk.CTkFrame(settings_frame, fg_color=COLOR["surface_alt"], corner_radius=10, border_width=1, border_color=COLOR["border"])
+        delay_card.pack(fill="x", pady=(0, 12))
+        delay_inner = ctk.CTkFrame(delay_card, fg_color="transparent")
+        delay_inner.pack(fill="x", padx=20, pady=16)
+        ctk.CTkLabel(delay_inner, text="Delay Between Emails (seconds)", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(side="left")
+        self.entry_delay = ctk.CTkEntry(
+            delay_inner, width=80, height=36, corner_radius=8,
+            fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"], font=("Inter", 13)
+        )
         self.entry_delay.insert(0, "2")
-        self.entry_delay.pack(side="left", padx=10)
-        
-        ctk.CTkLabel(self.tab_settings, text="* Increasing delay helps avoid Gmail spam detection.", font=("Inter", 11), text_color="gray").pack(pady=5)
-        
-        ctk.CTkLabel(self.tab_settings, text="Toll-Free Number (TFN):", font=("Inter", 13)).pack(anchor="w", padx=40, pady=(10, 0))
-        self.entry_tfn = ctk.CTkEntry(self.tab_settings, placeholder_text="e.g. +1-800-XXX-XXXX", width=300)
-        self.entry_tfn.pack(anchor="w", padx=40, pady=5)
-        
-        # --- Tab 5: Blaster ---
-        self.btn_start_blasting = ctk.CTkButton(self.tab_blaster, text="START BLASTING", height=100, font=("Inter", 24, "bold"), 
-                                                fg_color="#fd7e14", hover_color="#e8590c", command=self.on_start_blasting)
-        self.btn_start_blasting.pack(expand=True, padx=50, pady=50)
+        self.entry_delay.pack(side="right")
+        ctk.CTkLabel(settings_frame, text="⚠  Increasing delay helps avoid Gmail spam detection.", font=("Inter", 11), text_color=COLOR["muted"]).pack(anchor="w", pady=(0, 16))
+
+        # TFN card
+        tfn_card = ctk.CTkFrame(settings_frame, fg_color=COLOR["surface_alt"], corner_radius=10, border_width=1, border_color=COLOR["border"])
+        tfn_card.pack(fill="x", pady=(0, 8))
+        tfn_inner = ctk.CTkFrame(tfn_card, fg_color="transparent")
+        tfn_inner.pack(fill="x", padx=20, pady=16)
+        ctk.CTkLabel(tfn_inner, text="Toll-Free Number (TFN)", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
+        self.entry_tfn = ctk.CTkEntry(
+            tfn_inner, placeholder_text="e.g. +1-800-XXX-XXXX", width=300, height=36,
+            corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"]
+        )
+        self.entry_tfn.pack(anchor="w")
+
+        # --- Tab 5: Shooter ---
+        shooter_frame = ctk.CTkFrame(self.tab_shooter, fg_color="transparent")
+        shooter_frame.pack(fill="both", expand=True)
+
+        shooter_card = ctk.CTkFrame(shooter_frame, fg_color=COLOR["surface_alt"], corner_radius=16, border_width=1, border_color=COLOR["border"])
+        shooter_card.pack(expand=True, padx=60, pady=60)
+
+        ctk.CTkLabel(shooter_card, text="🚀", font=("Inter", 48)).pack(pady=(30, 10))
+        ctk.CTkLabel(shooter_card, text="Ready to send?", font=("Inter", 14), text_color=COLOR["text_sec"]).pack(pady=(0, 16))
+
+        self.btn_start_shooting = ctk.CTkButton(
+            shooter_card, text="🚀  START SENDING", height=64, width=300,
+            corner_radius=12, font=("Inter", 20, "bold"),
+            fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
+            text_color="#FFFFFF", command=self.on_start_shooting
+        )
+        self.btn_start_shooting.pack(pady=(0, 30))
 
         # --- Tab 6: Tags ---
         self.setup_tags_tab()
 
     def setup_tags_tab(self):
         container = ctk.CTkScrollableFrame(self.tab_tags, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=20, pady=15)
+        container.pack(fill="both", expand=True, padx=24, pady=20)
 
-        ctk.CTkLabel(container, text="Available Personalization Tags", font=("Inter", 18, "bold"), text_color="#fd7e14").pack(pady=(0, 20))
-        ctk.CTkLabel(container, text="Use these tags in your Subject, Body, HTML Content, or Custom Filenames.\nThey will be automatically replaced with dynamic data during blasting.", 
-                      font=("Inter", 13), justify="left", wraplength=500).pack(pady=(0, 20))
+        ctk.CTkLabel(container, text="Available System Tags", font=("Inter", 16, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(container, text="Use these tags in Subject, Body, HTML Content, or Custom Filenames.\nThey are replaced with dynamic data during shooting.",
+                      font=("Inter", 12), justify="left", wraplength=550, text_color=COLOR["text_sec"]).pack(anchor="w", pady=(0, 16))
 
         tags_info = [
-            ("$random(length)", "Generates a mix of uppercase letters and numbers.\nExample: $random(8) -> A1B2C3D4", "#17a2b8"),
-            ("$word(length)", "Generates random uppercase letters only.\nExample: $word(6) -> KIMOXQ", "#6f42c1"),
-            ("$invoice_no(length)", "Generates numbers ending with 1-2 letters.\nExample: $invoice_no(7) -> 12345AB", "#28a745"),
-            ("$rand(length)", "Generates pure random numbers.\nExample: $rand(6) -> 982374", "#fd7e14"),
-            ("$mail", "Replaces with the recipient's email address.", "#e83e8c"),
-            ("$date", "Replaces with current date (DD-MM-YYYY).", "#6c757d"),
-            ("$tfn", "Replaces with the Toll-Free Number from Settings.", "#007bff"),
+            ("$random(length)", "Generates a mix of uppercase letters and numbers.\nExample: $random(8) → A1B2C3D4", COLOR["info"]),
+            ("$word(length)", "Generates random uppercase letters only.\nExample: $word(6) → KIMOXQ", COLOR["accent"]),
+            ("$invoice_no(length)", "Generates numbers ending with 1-2 letters.\nExample: $invoice_no(7) → 12345AB", COLOR["success"]),
+            ("$rand(length)", "Generates pure random numbers.\nExample: $rand(6) → 982374", COLOR["warn"]),
+            ("$mail", "Replaces with the recipient's email address.", "#EC4899"),
+            ("$date", "Replaces with current date (DD-MM-YYYY).", COLOR["muted"]),
+            ("$tfn", "Replaces with the Toll-Free Number from Settings.", COLOR["primary"]),
         ]
 
         for tag, desc, color in tags_info:
-            frame = ctk.CTkFrame(container, fg_color="#2b2b2b", corner_radius=10)
-            frame.pack(fill="x", pady=5)
-            
-            lbl_tag = ctk.CTkLabel(frame, text=tag, font=("Consolas", 14, "bold"), text_color=color, width=150)
-            lbl_tag.pack(side="left", padx=15, pady=10)
-            
-            lbl_desc = ctk.CTkLabel(frame, text=desc, font=("Inter", 12), justify="left")
-            lbl_desc.pack(side="left", padx=10, pady=10, fill="x", expand=True)
+            frame = ctk.CTkFrame(container, fg_color=COLOR["tag_card"], corner_radius=10, border_width=1, border_color=COLOR["border"])
+            frame.pack(fill="x", pady=4)
 
-        ctk.CTkLabel(container, text="Note: (length) is optional and defaults to 6 if not specified.", font=("Inter", 11, "italic"), text_color="gray").pack(pady=10)
+            lbl_tag = ctk.CTkLabel(frame, text=tag, font=("Consolas", 13, "bold"), text_color=color, width=160)
+            lbl_tag.pack(side="left", padx=16, pady=12)
+
+            lbl_desc = ctk.CTkLabel(frame, text=desc, font=("Inter", 12), justify="left", text_color=COLOR["text"])
+            lbl_desc.pack(side="left", padx=10, pady=12, fill="x", expand=True)
+
+        ctk.CTkLabel(container, text="Note: (length) is optional and defaults to 6 if not specified.", font=("Inter", 11, "italic"), text_color=COLOR["muted"]).pack(anchor="w", pady=(10, 0))
 
 
     def create_activity_log(self):
-        # Step 5: Activity Log
-        self.log_frame = ctk.CTkFrame(self, height=150)
-        self.log_frame.grid(row=2, column=0, padx=20, pady=(10, 20), sticky="nsew")
-        
-        self.log_textbox = ctk.CTkTextbox(self.log_frame, font=("Consolas", 12), state="disabled", text_color="#00ff00")
-        self.log_textbox.pack(fill="both", expand=True, padx=10, pady=10)
+        # ── Activity Logs ──
+        self.log_frame = ctk.CTkFrame(self, fg_color=COLOR["surface"], corner_radius=12, border_width=1, border_color=COLOR["border"], height=160)
+        self.log_frame.grid(row=3, column=0, padx=24, pady=(8, 20), sticky="nsew")
+
+        log_header = ctk.CTkFrame(self.log_frame, fg_color="transparent")
+        log_header.pack(fill="x", padx=16, pady=(12, 0))
+        ctk.CTkLabel(log_header, text="✨  Activity Logs", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(side="left")
+
+        self.log_textbox = ctk.CTkTextbox(
+            self.log_frame, font=("Consolas", 11.5), state="disabled",
+            fg_color=COLOR["log_bg"], text_color=COLOR["log_text"],
+            corner_radius=8, border_width=1, border_color=COLOR["border"]
+        )
+        self.log_textbox.pack(fill="both", expand=True, padx=16, pady=(8, 14))
 
     # --- UI Logic & Handlers ---
     def log(self, message):
@@ -447,17 +627,52 @@ class App(ctk.CTk):
         try:
             count_str = self.entry_num_windows.get()
             count = int(count_str) if count_str.isdigit() else 1
-            for i in range(1, count + 1):
-                if i not in self.contexts:
-                    self.run_coro(self.launch_browser_task(i))
-                else:
-                    self.log(f"Window {i} is already active.")
+            self.run_coro(self.launch_and_arrange(count))
         except Exception as e:
             self.log(f"Launch Error: {e}")
 
+    async def launch_and_arrange(self, count):
+        """Launch all sessions sequentially, then tile them split-screen."""
+        for i in range(1, count + 1):
+            if i not in self.contexts:
+                await self.launch_browser_task(i)
+
+        # Silently arrange all active windows in split-screen
+        await self.arrange_windows_split()
+
+    async def arrange_windows_split(self):
+        """Tile all active browser windows in a grid across the screen using CDP."""
+        import math
+        active_ids = sorted(self.contexts.keys())
+        n = len(active_ids)
+        if n == 0:
+            return
+
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+
+        cols = math.ceil(math.sqrt(n))
+        rows = math.ceil(n / cols)
+        win_w = screen_w // cols
+        win_h = screen_h // rows
+
+        for idx, wid in enumerate(active_ids):
+            x = (idx % cols) * win_w
+            y = (idx // cols) * win_h
+            try:
+                page = self.contexts[wid]["page"]
+                cdp = await page.context.new_cdp_session(page)
+                win_info = await cdp.send("Browser.getWindowForTarget")
+                await cdp.send("Browser.setWindowBounds", {
+                    "windowId": win_info["windowId"],
+                    "bounds": {"left": x, "top": y, "width": win_w, "height": win_h, "windowState": "normal"}
+                })
+            except:
+                pass
+
     async def launch_browser_task(self, window_id):
         try:
-            self.log(f"Launching Window {window_id} with persistent profile...")
+            self.log(f"Initializing Session {window_id}...")
             profile_path = os.path.abspath(f"profiles/profile_{window_id}")
             os.makedirs(profile_path, exist_ok=True)
             
@@ -493,26 +708,35 @@ class App(ctk.CTk):
             
             # Update UI (thread-safe via after)
             self.after(0, lambda: self.add_window_row(window_id))
-            self.log(f"Window {window_id} Ready.")
+            self.log(f"Session {window_id} ready.")
             
         except Exception as e:
-            self.log(f"Error launching Window {window_id}: {e}")
+            self.log(f"Session {window_id} failed: {e}")
 
     def add_window_row(self, window_id):
-        # Create a row in the scrollable frame
-        row = ctk.CTkFrame(self.active_windows_frame)
-        row.pack(fill="x", padx=10, pady=5)
-        
-        ctk.CTkLabel(row, text=f"Profile {window_id}", width=100, font=("Inter", 12, "bold")).pack(side="left", padx=10)
-        
-        btn_gmail = ctk.CTkButton(row, text="Open Gmail", width=100, fg_color="#17a2b8", 
-                                  command=lambda: self.run_coro(self.open_gmail_task(window_id)))
-        btn_gmail.pack(side="left", padx=5)
-        
-        btn_close = ctk.CTkButton(row, text="Close", width=60, fg_color="#6c757d", 
-                                  command=lambda: self.run_coro(self.close_window_task(window_id)))
-        btn_close.pack(side="right", padx=10)
-        
+        # Create a styled row card in the scrollable frame
+        row = ctk.CTkFrame(self.active_windows_frame, fg_color=COLOR["surface_alt"], corner_radius=8, border_width=1, border_color=COLOR["border"])
+        row.pack(fill="x", padx=8, pady=4)
+
+        ctk.CTkLabel(row, text=f"⚡ Active Session {window_id}", width=140, font=("Inter", 12, "bold"), text_color=COLOR["text"]).pack(side="left", padx=12, pady=10)
+
+        btn_gmail = ctk.CTkButton(
+            row, text="Open Browser", width=110, height=30, corner_radius=6,
+            fg_color=COLOR["info"], hover_color=COLOR["info_hov"], text_color="#FFFFFF",
+            font=("Inter", 11, "bold"),
+            command=lambda: self.run_coro(self.open_gmail_task(window_id))
+        )
+        btn_gmail.pack(side="left", padx=4)
+
+        btn_close = ctk.CTkButton(
+            row, text="End Process", width=80, height=30, corner_radius=6,
+            fg_color=COLOR["surface"], hover_color=COLOR["border"], text_color=COLOR["danger"],
+            border_width=1, border_color=COLOR["danger"],
+            font=("Inter", 11, "bold"),
+            command=lambda: self.run_coro(self.close_window_task(window_id))
+        )
+        btn_close.pack(side="right", padx=12)
+
         # Save the row frame for deletion later
         self.contexts[window_id]["ui_row"] = row
 
@@ -719,18 +943,18 @@ class App(ctk.CTk):
         
         self.log("All previews generated.")
 
-    def on_start_blasting(self):
-        if self.is_blasting:
-            self.is_blasting = False
-            self.btn_start_blasting.configure(text="START BLASTING", fg_color="#fd7e14")
-            self.log("Blasting PAUSED. Waiting for current tasks to finish...")
+    def on_start_shooting(self):
+        if self.is_shooting:
+            self.is_shooting = False
+            self.btn_start_shooting.configure(text="🚀  START SENDING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
+            self.log("Sending PAUSED. Waiting for current tasks to finish...")
         else:
-            self.is_blasting = True
-            self.btn_start_blasting.configure(text="STOP BLASTING", fg_color="#dc3545")
-            self.run_coro(self.blaster_engine_task())
+            self.is_shooting = True
+            self.btn_start_shooting.configure(text="⏹  STOP SENDING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
+            self.run_coro(self.shooter_engine_task())
 
-    async def blaster_engine_task(self):
-        self.log("Initializing Blaster Engine...")
+    async def shooter_engine_task(self):
+        self.log("Initializing Shooter Engine...")
         
         # 1. Get Data
         raw_emails = self.text_emails.get("1.0", "end-1c").strip().split("\n")
@@ -738,13 +962,13 @@ class App(ctk.CTk):
         
         if not emails:
             self.log("Error: No recipient emails found.")
-            self.on_start_blasting()
+            self.on_start_shooting()
             return
 
         active_ids = list(self.contexts.keys())
         if not active_ids:
             self.log("Error: No active windows found. Launch windows first.")
-            self.on_start_blasting()
+            self.on_start_shooting()
             return
 
         subject_template = self.entry_subject.get()
@@ -756,15 +980,14 @@ class App(ctk.CTk):
         custom_filename_template = self.entry_filename.get()
         delay_sec = float(self.entry_delay.get() or 2)
 
-        self.log(f"Starting blast for {len(emails)} emails using {len(active_ids)} windows...")
+        self.log(f"Starting shoot for {len(emails)} emails using {len(active_ids)} windows...")
 
         # 2. Round-Robin Loop
         for i, recipient in enumerate(emails):
-            if not self.is_blasting:
+            if not self.is_shooting:
                 break
             
             window_id = active_ids[i % len(active_ids)]
-            self.log(f"Processing {recipient} via Window {window_id}...")
 
             # 3. Parse Content
             parsed_subject = self.parser.parse(subject_template, recipient, tfn)
@@ -813,14 +1036,12 @@ class App(ctk.CTk):
             else:
                 self.log(f"Failed to send to {recipient}")
 
-            # 6. User-defined delay between emails
             if i < len(emails) - 1:
-                self.log(f"Waiting {delay_sec} seconds before next email...")
                 await asyncio.sleep(delay_sec)
 
-        self.log("Blasting session COMPLETED.")
-        if self.is_blasting:
-            self.on_start_blasting() # Toggle UI back
+        self.log("Shooting session COMPLETED.")
+        if self.is_shooting:
+            self.on_start_shooting() # Toggle UI back
 
     async def automate_gmail_send(self, window_id, recipient, subject, body, attachment_path):
         if window_id not in self.contexts:
@@ -834,14 +1055,12 @@ class App(ctk.CTk):
                 await page.goto("https://mail.google.com")
                 await asyncio.sleep(3)
 
-            # Step 3: STRICT LOCATOR RULES
             # Click Compose
-            self.log(f"[W{window_id}] Clicking Compose...")
             await page.get_by_role("button", name="Compose").click(timeout=15000)
             await asyncio.sleep(random.uniform(1.5, 3.0))
 
             # Fill To
-            self.log(f"[W{window_id}] Filling recipient...")
+            self.log(f"[S{window_id}] Sending to {recipient}...")
             to_input = page.locator('div[aria-label="To"] input, input[aria-label="To"]').first
             await to_input.click()
             await to_input.fill(recipient)
@@ -849,13 +1068,11 @@ class App(ctk.CTk):
             await asyncio.sleep(0.5)
 
             # Fill Subject
-            self.log(f"[W{window_id}] Filling subject...")
             subject_input = page.locator('input[name="subjectbox"], input[placeholder="Subject"]').first
             await subject_input.fill(subject)
             await asyncio.sleep(0.5)
 
             # Fill Body
-            self.log(f"[W{window_id}] Filling body...")
             body_input = page.locator('div[role="textbox"][aria-label="Message Body"], div.editable[contenteditable="true"]').first
             await body_input.click()
             await body_input.fill(body)
@@ -863,7 +1080,6 @@ class App(ctk.CTk):
 
             # Upload Attachment
             if attachment_path and os.path.exists(attachment_path):
-                self.log(f"[W{window_id}] Uploading attachment: {os.path.basename(attachment_path)}...")
                 
                 upload_success = False
                 try:
@@ -877,7 +1093,6 @@ class App(ctk.CTk):
                     await file_chooser.set_files(attachment_path)
                     upload_success = True
                 except Exception as e:
-                    self.log(f"[W{window_id}] Method 1 (File Chooser) failed: {e}. Trying Method 2...")
                     try:
                         # Method 2: Direct set_input_files on hidden input
                         file_input = page.locator('input[type="file"][name="Filedata"], input[type="file"]').last
@@ -887,18 +1102,15 @@ class App(ctk.CTk):
                         self.log(f"[W{window_id}] Method 2 (Direct Input) failed: {e2}")
 
                 if upload_success:
-                    self.log(f"[W{window_id}] Attachment initiated. Sending directly...")
                     await asyncio.sleep(0.5) # Minimal buffer for Gmail UI
 
             # Send
-            self.log(f"[W{window_id}] Clicking Send...")
             try:
                 # Use a more robust selector for the Send button
                 # Gmail's send button usually contains "Send" in aria-label
                 send_btn = page.locator('div[role="button"][aria-label*="Send"], div[role="button"]:has-text("Send")').first
                 await send_btn.click(timeout=7000)
             except Exception as e:
-                self.log(f"[W{window_id}] Click failed or timed out: {e}. Trying keyboard shortcut...")
                 # Fallback: Gmail shortcut for Send is Ctrl+Enter (or Cmd+Enter on Mac)
                 # We try both to be sure
                 await page.keyboard.press("Control+Enter")
@@ -907,9 +1119,7 @@ class App(ctk.CTk):
                 await page.keyboard.press("Meta+Enter")
             
             # Optional: Wait for "Message sent" confirmation
-            try:
-                await page.wait_for_selector('span:has-text("Message sent"), span:has-text("Sending")', timeout=5000)
-                self.log(f"[W{window_id}] Send confirmed.")
+                pass
             except:
                 pass
                 
