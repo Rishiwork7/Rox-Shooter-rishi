@@ -1,43 +1,46 @@
-name: Build Secure Executable
+name: Build Standalone Executables
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
   build:
-    runs-on: windows-latest
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up Python 3.10
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip'
 
-    - name: Install Dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller pyarmor
         pip install -r requirements.txt
+        pip install pyinstaller
 
-    - name: Obfuscate Code (PyArmor)
+    - name: Install Playwright Browsers
       run: |
-        pyarmor gen main.py
-        # This creates 'dist/main.py' and 'dist/pyarmor_runtime_000000/'
+        python -m playwright install chromium
 
-    - name: Compile to EXE (PyInstaller)
+    - name: Build with PyInstaller
       run: |
-        # We run pyinstaller on the obfuscated file inside the dist folder
-        # We must include the pyarmor runtime directory
-        pyinstaller --noconfirm --onefile --windowed --name "RoxMailer_Secure" --add-data "dist/pyarmor_runtime_000000;pyarmor_runtime_000000" dist/main.py
+        pyinstaller build_app.spec
 
-    - name: Upload Build Artifact
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: RoxMailer-V3-Secure
-        path: dist/RoxMailer_Secure.exe
+        name: GmailMailerPro-${{ matrix.os }}
+        path: |
+          dist/GmailMailerPro.exe
+          dist/GmailMailerPro.app
+          dist/GmailMailerPro
