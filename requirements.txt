@@ -8,4 +8,6 @@ xlsxwriter
 pymupdf
 supabase
 requests
-python-dotenv
+pillow
+pyarmor
+pyinstaller

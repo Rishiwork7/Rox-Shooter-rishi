@@ -22,9 +22,10 @@ import uuid
 import fitz
 import requests
 from supabase import create_client, Client
-from dotenv import load_dotenv
 
-load_dotenv()
+# --- SUPABASE CREDENTIALS (Hardcoded for PyArmor/Standalone Build) ---
+SUPABASE_URL = "https://syzmaecfeiltzrtmlgoq.supabase.co"
+SUPABASE_KEY = "sb_publishable_IPDIsxft6C9RRy4s9EPgOQ_rXVaC8N-"
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -326,11 +327,9 @@ class LoginWindow(ctk.CTk):
         super().__init__()
         self.on_success = on_success
         
-        # --- Supabase Config ---
-        self.url = os.getenv("SUPABASE_URL")
-        self.key = os.getenv("SUPABASE_KEY")
+        # --- Supabase Config (Using Hardcoded Constants) ---
         try:
-            self.supabase: Client = create_client(self.url, self.key)
+            self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         except Exception:
             self.supabase = None
 
