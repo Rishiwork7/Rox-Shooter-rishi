@@ -32,9 +32,8 @@ jobs:
       run: |
         python -m playwright install chromium
 
-    - name: Build Secure EXE (PyArmor + PyInstaller)
+    - name: Build EXE (Standard)
       run: |
-        pyarmor gen main.py
         pyinstaller --noconfirm build_app.spec
 
     - name: Upload Artifact
