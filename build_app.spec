@@ -13,11 +13,19 @@ playwright_submodules = collect_submodules('playwright')
 pptx_data = collect_data_files('pptx')
 PIL_data = collect_data_files('PIL')
 
+# --- PyArmor Runtime Detection ---
+import glob
+runtime_folders = glob.glob('dist/pyarmor_runtime_*')
+pyarmor_data = []
+if runtime_folders:
+    runtime_dir = os.path.basename(runtime_folders[0])
+    pyarmor_data = [(runtime_folders[0], runtime_dir)]
+
 a = Analysis(
-    ['main.py'],
+    ['dist/main.py'],
     pathex=[],
     binaries=[],
-    datas=playwright_data + pptx_data + PIL_data + [
+    datas=playwright_data + pptx_data + PIL_data + pyarmor_data + [
         ('requirements.txt', '.'),
     ],
     hiddenimports=[
@@ -33,6 +41,11 @@ a = Analysis(
         'darkdetect',
         'PIL.Image',
         'PIL.PngImagePlugin',
+        'supabase',
+        'requests',
+        'postgrest',
+        'gotrue',
+        'storage3',
     ] + playwright_submodules,
     hookspath=[],
     hooksconfig={},
