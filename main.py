@@ -19,6 +19,12 @@ import xlsxwriter
 import subprocess
 import sys
 import uuid
+import fitz
+import requests
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -172,8 +178,13 @@ class Converter:
         try:
             await self.html_to_image(html_content, img_name)
             prs = Presentation()
+            # Set to A4 dimensions (approx)
+            prs.slide_width = Inches(8.5)
+            prs.slide_height = Inches(11)
+            
             slide = prs.slides.add_slide(prs.slide_layouts[6])
-            slide.shapes.add_picture(img_path, Inches(0.5), Inches(0.5), width=Inches(9))
+            # Fill the slide
+            slide.shapes.add_picture(img_path, Inches(0), Inches(0), width=prs.slide_width, height=prs.slide_height)
             prs.save(path)
             if os.path.exists(img_path): os.remove(img_path)
             return path
@@ -215,6 +226,210 @@ class Converter:
         except Exception as e:
             self.log(f"Image then XLS Error: {e}")
             return None
+
+    async def html_to_pdf_pptx(self, html_content, filename="attachment_pdf.pptx"):
+        """HTML -> PDF -> PPTX (Multi-page)."""
+        path = os.path.join(self.temp_dir, filename)
+        unique_id = uuid.uuid4().hex[:8]
+        pdf_name = f"temp_pdf_{unique_id}.pdf"
+        pdf_path = os.path.join(self.temp_dir, pdf_name)
+        try:
+            # 1. Generate PDF
+            res = await self.html_to_pdf(html_content, pdf_name)
+            if not res: return None
+            
+            # 2. Convert PDF to Images
+            doc = fitz.open(pdf_path)
+            prs = Presentation()
+            # Set to A4 dimensions
+            prs.slide_width = Inches(8.5)
+            prs.slide_height = Inches(11)
+            temp_images = []
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Higher DPI
+                img_path = os.path.join(self.temp_dir, f"page_{page_num}_{unique_id}.png")
+                pix.save(img_path)
+                temp_images.append(img_path)
+                
+                # 3. Add to PPTX
+                slide = prs.slides.add_slide(prs.slide_layouts[6])
+                # Stretch to fill the A4 slide
+                slide.shapes.add_picture(img_path, Inches(0), Inches(0), width=prs.slide_width, height=prs.slide_height)
+            
+            prs.save(path)
+            doc.close()
+            
+            # Cleanup
+            for img in temp_images:
+                if os.path.exists(img): os.remove(img)
+            if os.path.exists(pdf_path): os.remove(pdf_path)
+            return path
+        except Exception as e:
+            self.log(f"PDF then PPTX Error: {e}")
+            return None
+
+    async def html_to_pdf_xls(self, html_content, filename="attachment_pdf.xlsx"):
+        """HTML -> PDF -> Excel (Multi-page)."""
+        path = os.path.join(self.temp_dir, filename)
+        unique_id = uuid.uuid4().hex[:8]
+        pdf_name = f"temp_pdf_{unique_id}.pdf"
+        pdf_path = os.path.join(self.temp_dir, pdf_name)
+        try:
+            # 1. Generate PDF
+            res = await self.html_to_pdf(html_content, pdf_name)
+            if not res: return None
+            
+            # 2. Convert PDF to Images
+            doc = fitz.open(pdf_path)
+            workbook = xlsxwriter.Workbook(path)
+            temp_images = []
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                img_path = os.path.join(self.temp_dir, f"page_{page_num}_{unique_id}.png")
+                pix.save(img_path)
+                temp_images.append(img_path)
+                
+                # 3. Add to XLS
+                worksheet = workbook.add_worksheet(f"Page {page_num+1}")
+                worksheet.insert_image('A1', img_path, {'x_scale': 0.5, 'y_scale': 0.5})
+            
+            workbook.close()
+            doc.close()
+            
+            # Cleanup
+            for img in temp_images:
+                if os.path.exists(img): os.remove(img)
+            if os.path.exists(pdf_path): os.remove(pdf_path)
+            return path
+        except Exception as e:
+            self.log(f"PDF then XLS Error: {e}")
+            return None
+
+def get_public_ip():
+    """Fetches the current public IP address using reliable APIs."""
+    try:
+        response = requests.get('https://api.ipify.org', timeout=5)
+        return response.text.strip()
+    except Exception:
+        try:
+            response = requests.get('https://ifconfig.me/ip', timeout=5)
+            return response.text.strip()
+        except Exception:
+            return None
+
+class LoginWindow(ctk.CTk):
+    def __init__(self, on_success):
+        super().__init__()
+        self.on_success = on_success
+        
+        # --- Supabase Config ---
+        self.url = os.getenv("SUPABASE_URL")
+        self.key = os.getenv("SUPABASE_KEY")
+        try:
+            self.supabase: Client = create_client(self.url, self.key)
+        except Exception:
+            self.supabase = None
+
+        # --- Window Configuration ---
+        self.title("Rox-Shooter v1.1 Authorization")
+        self.geometry("400x500")
+        self.configure(fg_color=COLOR["bg"])
+        self.resizable(False, False)
+        
+        # Center Window
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        x = (screen_w // 2) - (400 // 2)
+        y = (screen_h // 2) - (500 // 2)
+        self.geometry(f"+{x}+{y}")
+
+        self.create_widgets()
+        
+    def create_widgets(self):
+        ctk.CTkLabel(self, text="🔒", font=("Inter", 60)).pack(pady=(40, 10))
+        ctk.CTkLabel(self, text="Rox-Shooter v1.1", font=("Inter", 24, "bold"), text_color=COLOR["text"]).pack(pady=(0, 30))
+        
+        ctk.CTkLabel(self, text="User Identifier", font=("Inter", 13, "bold"), text_color=COLOR["text_sec"]).pack(anchor="w", padx=40)
+        self.user_id_entry = ctk.CTkEntry(self, width=320, height=40, corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"])
+        self.user_id_entry.pack(pady=(5, 20))
+        
+        ctk.CTkLabel(self, text="Security Password", font=("Inter", 13, "bold"), text_color=COLOR["text_sec"]).pack(anchor="w", padx=40)
+        self.password_entry = ctk.CTkEntry(self, width=320, height=40, corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], show="*")
+        self.password_entry.pack(pady=(5, 20))
+        
+        self.lbl_status = ctk.CTkLabel(self, text="", font=("Inter", 12), text_color=COLOR["danger"])
+        self.lbl_status.pack(pady=10)
+        
+        self.btn_login = ctk.CTkButton(self, text="SECURE LOGIN", width=320, height=50, corner_radius=25,
+                                      fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
+                                      font=("Inter", 14, "bold"), command=self.on_login_click)
+        self.btn_login.pack(pady=10)
+
+    def on_login_click(self):
+        threading.Thread(target=self.login_process, daemon=True).start()
+
+    def login_process(self):
+        u_id = self.user_id_entry.get().strip()
+        pwd = self.password_entry.get().strip()
+        
+        if not u_id or not pwd:
+            self.update_status("Please fill all fields.", COLOR["danger"])
+            return
+
+        self.update_status("Verifying IP & Credentials...", COLOR["info"])
+        current_ip = get_public_ip()
+        if not current_ip:
+            self.update_status("Network Error: Could not fetch IP.", COLOR["danger"])
+            return
+
+        if not self.supabase:
+            self.update_status("Configuration Error: Check .env", COLOR["danger"])
+            return
+            
+        try:
+            response = self.supabase.table("users").select("*").eq("user_id", u_id).execute()
+            data = response.data
+            
+            if not data:
+                # Try case-insensitive fallback
+                response = self.supabase.table("users").select("*").ilike("user_id", u_id).execute()
+                data = response.data
+
+            if not data:
+                self.update_status("Invalid User ID.", COLOR["danger"])
+                return
+            
+            # 3. Validations
+            user = data[0]
+            if user.get("password") != pwd:
+                self.update_status("Incorrect Password.", COLOR["danger"])
+                return
+            if user.get("status") != "Active":
+                self.update_status("Account is Inactive. Contact Admin.", COLOR["danger"])
+                return
+            
+            # --- Optional IP Validation ---
+            allowed_ip = user.get("allowed_ip")
+            if allowed_ip and allowed_ip.strip() not in ["", "*", "Any", "any"]:
+                if allowed_ip != current_ip:
+                    self.update_status(f"Access Denied! Unauthorized IP: {current_ip}", COLOR["danger"])
+                    return
+            
+            self.update_status("Authorization Success!", COLOR["success"])
+            self.after(1000, self.finish_login)
+        except Exception as e:
+            self.update_status(f"Auth Error: {str(e)}", COLOR["danger"])
+
+    def update_status(self, text, color):
+        self.after(0, lambda: self.lbl_status.configure(text=text, text_color=color))
+
+    def finish_login(self):
+        self.destroy()
+        self.on_success()
 
 class App(ctk.CTk):
     def __init__(self):
@@ -282,12 +497,12 @@ class App(ctk.CTk):
         avatar_frame = ctk.CTkFrame(header, fg_color="transparent")
         avatar_frame.pack(side="right", padx=24, pady=10)
         avatar = ctk.CTkButton(
-            avatar_frame, text="S", width=36, height=36, corner_radius=18,
-            fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
-            text_color="#FFFFFF", font=("Inter", 16, "bold"), state="disabled"
+            avatar_frame, text="R", width=36, height=36, corner_radius=18,
+            fg_color=COLOR["primary"], hover=False,
+            text_color="#FFFFFF", font=("Inter", 16, "bold"), state="normal"
         )
-        avatar.pack(side="right")
-        ctk.CTkLabel(avatar_frame, text="Shooter", font=("Inter", 12, "bold"), text_color=COLOR["text"]).pack(side="right", padx=(0, 8))
+        avatar.pack(side="right", padx=(8, 0))
+        ctk.CTkLabel(avatar_frame, text="Rox", font=("Inter", 12, "bold"), text_color=COLOR["text"]).pack(side="right")
 
     def create_launch_controls(self):
         # ── Window Management Bar ──
@@ -438,8 +653,9 @@ class App(ctk.CTk):
         self.text_body.pack(fill="both", expand=True)
         
         # --- Tab 3: Content ---
-        self.content_frame = ctk.CTkFrame(self.tab_content, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True, padx=24, pady=20)
+        # Make the content tab scrollable so all buttons are visible
+        self.content_frame = ctk.CTkScrollableFrame(self.tab_content, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Row 1: Conversion and Filename Mode
         row1 = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -451,7 +667,8 @@ class App(ctk.CTk):
         ctk.CTkLabel(conv_col, text="Conversion Type", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
         self.conv_options = [
             "None", "HTML to raw PDF", "HTML to Image", "HTML to Image then PDF",
-            "HTML to Image then PPTX", "HTML to Image then XLS"
+            "HTML to Image then PPTX", "HTML to Image then XLS",
+            "HTML to PDF to PPT", "HTML to PDF to Excel"
         ]
         self.dropdown_conversion = ctk.CTkComboBox(
             conv_col, values=self.conv_options, width=260, height=36, corner_radius=8,
@@ -462,6 +679,13 @@ class App(ctk.CTk):
         )
         self.dropdown_conversion.set("HTML to raw PDF")
         self.dropdown_conversion.pack(anchor="w", pady=(0, 4))
+        
+        self.btn_preview = ctk.CTkButton(
+            conv_col, text="Preview Selected", height=32, corner_radius=8,
+            fg_color=COLOR["accent"], hover_color=COLOR["accent_hov"],
+            text_color="#FFFFFF", font=("Inter", 11, "bold"), command=self.on_preview_attachment
+        )
+        self.btn_preview.pack(anchor="w", pady=(5, 0))
 
         # Right: Filename Mode
         file_col = ctk.CTkFrame(row1, fg_color="transparent")
@@ -489,31 +713,16 @@ class App(ctk.CTk):
         self.entry_filename.pack(anchor="w", pady=5)
         self.filename_frame.pack_forget()  # Hidden by default
 
+
         # Row 3: HTML Content
         ctk.CTkLabel(self.content_frame, text="HTML Content", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(4, 6))
         self.text_html = ctk.CTkTextbox(
-            self.content_frame, font=("Consolas", 12),
+            self.content_frame, font=("Consolas", 12), height=400,
             fg_color=COLOR["input_bg"], text_color=COLOR["text"],
             border_width=1, border_color=COLOR["input_border"], corner_radius=8
         )
-        self.text_html.pack(fill="both", expand=True, pady=(0, 12))
+        self.text_html.pack(fill="x", pady=(0, 12))
 
-        preview_row = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-        preview_row.pack(fill="x", pady=(0, 4))
-
-        self.btn_preview = ctk.CTkButton(
-            preview_row, text="👁  Preview Selected Format", height=36, corner_radius=8,
-            fg_color=COLOR["accent"], hover_color=COLOR["accent_hov"],
-            text_color="#FFFFFF", font=("Inter", 12, "bold"), command=self.on_preview_attachment
-        )
-        self.btn_preview.pack(side="left", padx=(0, 10))
-
-        self.btn_preview_all = ctk.CTkButton(
-            preview_row, text="📁  Preview All Formats", height=36, corner_radius=8,
-            fg_color=COLOR["info"], hover_color=COLOR["info_hov"],
-            text_color="#FFFFFF", font=("Inter", 12, "bold"), command=self.on_preview_all
-        )
-        self.btn_preview_all.pack(side="left")
         
         # --- Tab 4: Settings ---
         settings_frame = ctk.CTkFrame(self.tab_settings, fg_color="transparent")
@@ -851,13 +1060,16 @@ class App(ctk.CTk):
     def on_preview_attachment(self):
         self.run_coro(self.preview_attachment_task())
 
-    async def preview_attachment_task(self):
+    def on_preview_specific(self, format_name):
+        self.run_coro(self.preview_attachment_task(format_override=format_name))
+
+    async def preview_attachment_task(self, format_override=None):
         html_template = self.text_html.get("1.0", "end-1c")
         if not html_template.strip():
             self.log("Error: No HTML content to preview.")
             return
 
-        conversion_type = self.dropdown_conversion.get()
+        conversion_type = format_override if format_override else self.dropdown_conversion.get()
         if conversion_type == "None":
             self.log("Error: Conversion type is 'None'. Choose a type to preview.")
             return
@@ -870,11 +1082,11 @@ class App(ctk.CTk):
         
         # Extension
         ext = ".pdf"
-        if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type:
+        if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type and "PPT" not in conversion_type and "Excel" not in conversion_type:
             ext = ".png"
-        elif "PPTX" in conversion_type:
+        elif "PPT" in conversion_type:
             ext = ".pptx"
-        elif "XLS" in conversion_type:
+        elif "XLS" in conversion_type or "Excel" in conversion_type:
             ext = ".xlsx"
             
         filename = f"preview_test{ext}"
@@ -892,6 +1104,10 @@ class App(ctk.CTk):
                 path = await self.converter.html_to_image_pptx(parsed_html, filename)
             elif conversion_type == "HTML to Image then XLS":
                 path = await self.converter.html_to_image_xls(parsed_html, filename)
+            elif conversion_type == "HTML to PDF to PPT":
+                path = await self.converter.html_to_pdf_pptx(parsed_html, filename)
+            elif conversion_type == "HTML to PDF to Excel":
+                path = await self.converter.html_to_pdf_xls(parsed_html, filename)
             
             if path and os.path.exists(path):
                 self.log(f"Preview generated: {path}")
@@ -931,7 +1147,9 @@ class App(ctk.CTk):
             ("Image then PDF", self.converter.html_to_image_pdf(parsed_html, "preview_all_img_pdf.pdf")),
 
             ("Image then PPTX", self.converter.html_to_image_pptx(parsed_html, "preview_all_img_pptx.pptx")),
-            ("Image then XLS", self.converter.html_to_image_xls(parsed_html, "preview_all_img_xls.xlsx"))
+            ("Image then XLS", self.converter.html_to_image_xls(parsed_html, "preview_all_img_xls.xlsx")),
+            ("PDF then PPT", self.converter.html_to_pdf_pptx(parsed_html, "preview_all_pdf_pptx.pptx")),
+            ("PDF then Excel", self.converter.html_to_pdf_xls(parsed_html, "preview_all_pdf_xls.xlsx"))
         ]
         
         for name, coro in tasks:
@@ -1018,11 +1236,11 @@ class App(ctk.CTk):
                 
                 # Add correct extension
                 ext = ".pdf"
-                if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type:
+                if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type and "PPT" not in conversion_type and "Excel" not in conversion_type:
                     ext = ".png"
-                elif "PPTX" in conversion_type:
+                elif "PPT" in conversion_type:
                     ext = ".pptx"
-                elif "XLS" in conversion_type:
+                elif "XLS" in conversion_type or "Excel" in conversion_type:
                     ext = ".xlsx"
                 
                 final_filename = f"{base_name}{ext}"
@@ -1038,6 +1256,10 @@ class App(ctk.CTk):
                     attachment_path = await self.converter.html_to_image_pptx(parsed_html, final_filename)
                 elif conversion_type == "HTML to Image then XLS":
                     attachment_path = await self.converter.html_to_image_xls(parsed_html, final_filename)
+                elif conversion_type == "HTML to PDF to PPT":
+                    attachment_path = await self.converter.html_to_pdf_pptx(parsed_html, final_filename)
+                elif conversion_type == "HTML to PDF to Excel":
+                    attachment_path = await self.converter.html_to_pdf_xls(parsed_html, final_filename)
 
             # 5. Execute Automation
             success = await self.automate_gmail_send(window_id, recipient, parsed_subject, parsed_body, attachment_path)
@@ -1180,11 +1402,12 @@ class App(ctk.CTk):
         self.destroy()
 
 if __name__ == "__main__":
-    # Essential for PyInstaller standalone executables
     multiprocessing.freeze_support()
     
-    # No browser download needed — we use system Chrome (channel="chrome")
-    # Chrome must be installed on the target machine (it almost always is)
-        
-    app = App()
-    app.mainloop()
+    def start_app():
+        app = App()
+        app.mainloop()
+
+    # Launch Login First
+    login_win = LoginWindow(on_success=start_app)
+    login_win.mainloop()

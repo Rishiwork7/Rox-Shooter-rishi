@@ -5,3 +5,7 @@ imgkit
 python-pptx
 pandas
 xlsxwriter
+pymupdf
+supabase
+requests
+python-dotenv
