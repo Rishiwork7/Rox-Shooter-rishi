@@ -593,8 +593,9 @@ class App(ctk.CTk):
         self.tab_data = self.tabview.add("Target Contacts")
         self.tab_subject_body = self.tabview.add("Subject & Body")
         self.tab_content = self.tabview.add("Content Options")
+        self.tab_tfn = self.tabview.add("TFN Number")
         self.tab_settings = self.tabview.add("Advanced Params")
-        self.tab_shooter = self.tabview.add("Execute Send")
+        self.tab_blasting = self.tabview.add("Blasting Center")
         self.tab_tags = self.tabview.add("System Tags")
 
         self.setup_tabs()
@@ -635,7 +636,7 @@ class App(ctk.CTk):
         sb_frame = ctk.CTkFrame(self.tab_subject_body, fg_color="transparent")
         sb_frame.pack(fill="both", expand=True, padx=24, pady=20)
 
-        ctk.CTkLabel(sb_frame, text="Shooter Subject", font=("Inter", 14, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(sb_frame, text="Blasting Subject", font=("Inter", 14, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
         self.entry_subject = ctk.CTkEntry(
             sb_frame, placeholder_text="e.g. $invoice_no7 — Important Notice", font=("Inter", 13), height=38,
             corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"],
@@ -723,7 +724,24 @@ class App(ctk.CTk):
         self.text_html.pack(fill="x", pady=(0, 12))
 
         
-        # --- Tab 4: Settings ---
+        # --- Tab 4: TFN ---
+        tfn_frame = ctk.CTkFrame(self.tab_tfn, fg_color="transparent")
+        tfn_frame.pack(fill="both", expand=True, padx=24, pady=20)
+
+        ctk.CTkLabel(tfn_frame, text="Toll-Free Number (TFN)", font=("Inter", 16, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 16))
+        
+        tfn_card = ctk.CTkFrame(tfn_frame, fg_color=COLOR["surface_alt"], corner_radius=10, border_width=1, border_color=COLOR["border"])
+        tfn_card.pack(fill="x", pady=(0, 8))
+        tfn_inner = ctk.CTkFrame(tfn_card, fg_color="transparent")
+        tfn_inner.pack(fill="x", padx=20, pady=16)
+        ctk.CTkLabel(tfn_inner, text="Configure TFN for Replacement", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
+        self.entry_tfn = ctk.CTkEntry(
+            tfn_inner, placeholder_text="e.g. +1-800-XXX-XXXX", width=400, height=36,
+            corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"]
+        )
+        self.entry_tfn.pack(anchor="w")
+
+        # --- Tab 5: Settings ---
         settings_frame = ctk.CTkFrame(self.tab_settings, fg_color="transparent")
         settings_frame.pack(fill="both", expand=True, padx=24, pady=20)
 
@@ -743,35 +761,23 @@ class App(ctk.CTk):
         self.entry_delay.pack(side="right")
         ctk.CTkLabel(settings_frame, text="⚠  Increasing delay helps avoid Gmail spam detection.", font=("Inter", 11), text_color=COLOR["muted"]).pack(anchor="w", pady=(0, 16))
 
-        # TFN card
-        tfn_card = ctk.CTkFrame(settings_frame, fg_color=COLOR["surface_alt"], corner_radius=10, border_width=1, border_color=COLOR["border"])
-        tfn_card.pack(fill="x", pady=(0, 8))
-        tfn_inner = ctk.CTkFrame(tfn_card, fg_color="transparent")
-        tfn_inner.pack(fill="x", padx=20, pady=16)
-        ctk.CTkLabel(tfn_inner, text="Toll-Free Number (TFN)", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 6))
-        self.entry_tfn = ctk.CTkEntry(
-            tfn_inner, placeholder_text="e.g. +1-800-XXX-XXXX", width=300, height=36,
-            corner_radius=8, fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"]
-        )
-        self.entry_tfn.pack(anchor="w")
+        # --- Tab 6: Blasting ---
+        blasting_frame = ctk.CTkFrame(self.tab_blasting, fg_color="transparent")
+        blasting_frame.pack(fill="both", expand=True)
 
-        # --- Tab 5: Shooter ---
-        shooter_frame = ctk.CTkFrame(self.tab_shooter, fg_color="transparent")
-        shooter_frame.pack(fill="both", expand=True)
+        blasting_card = ctk.CTkFrame(blasting_frame, fg_color=COLOR["surface_alt"], corner_radius=16, border_width=1, border_color=COLOR["border"])
+        blasting_card.pack(expand=True, padx=60, pady=60)
 
-        shooter_card = ctk.CTkFrame(shooter_frame, fg_color=COLOR["surface_alt"], corner_radius=16, border_width=1, border_color=COLOR["border"])
-        shooter_card.pack(expand=True, padx=60, pady=60)
+        ctk.CTkLabel(blasting_card, text="🚀", font=("Inter", 48)).pack(pady=(30, 10))
+        ctk.CTkLabel(blasting_card, text="Ready for Blasting?", font=("Inter", 14), text_color=COLOR["text_sec"]).pack(pady=(0, 16))
 
-        ctk.CTkLabel(shooter_card, text="🚀", font=("Inter", 48)).pack(pady=(30, 10))
-        ctk.CTkLabel(shooter_card, text="Ready to send?", font=("Inter", 14), text_color=COLOR["text_sec"]).pack(pady=(0, 16))
-
-        self.btn_start_shooting = ctk.CTkButton(
-            shooter_card, text="START SENDING", height=56, width=280,
+        self.btn_start_blasting = ctk.CTkButton(
+            blasting_card, text="START BLASTING", height=56, width=280,
             corner_radius=28, font=("Inter", 16, "bold"),
             fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"],
-            text_color="#FFFFFF", command=self.on_start_shooting
+            text_color="#FFFFFF", command=self.on_start_blasting
         )
-        self.btn_start_shooting.pack(pady=(0, 30))
+        self.btn_start_blasting.pack(pady=(0, 30))
 
         # --- Tab 6: Tags ---
         self.setup_tags_tab()
@@ -781,7 +787,7 @@ class App(ctk.CTk):
         container.pack(fill="both", expand=True, padx=24, pady=20)
 
         ctk.CTkLabel(container, text="Available System Tags", font=("Inter", 16, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
-        ctk.CTkLabel(container, text="Use these tags in Subject, Body, HTML Content, or Custom Filenames.\nThey are replaced with dynamic data during shooting.",
+        ctk.CTkLabel(container, text="Use these tags in Subject, Body, HTML Content, or Custom Filenames.\nThey are replaced with dynamic data during blasting.",
                       font=("Inter", 12), justify="left", wraplength=550, text_color=COLOR["text_sec"]).pack(anchor="w", pady=(0, 16))
 
         tags_info = [
@@ -1174,15 +1180,15 @@ class App(ctk.CTk):
     def on_start_blasting(self):
         if self.is_blasting:
             self.is_blasting = False
-            self.btn_start_shooting.configure(text="START BLASTING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
+            self.btn_start_blasting.configure(text="START BLASTING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
             self.log("Sending PAUSED. Waiting for current tasks to finish...")
         else:
             self.is_blasting = True
-            self.btn_start_shooting.configure(text="STOP BLASTING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
-            self.run_coro(self.shooter_engine_task())
+            self.btn_start_blasting.configure(text="STOP BLASTING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
+            self.run_coro(self.blasting_engine_task())
 
-    async def shooter_engine_task(self):
-        self.log("Initializing Shooter Engine...")
+    async def blasting_engine_task(self):
+        self.log("Initializing Blasting Engine...")
         
         # 1. Get Data
         raw_emails = self.text_emails.get("1.0", "end-1c").strip().split("\n")
@@ -1212,7 +1218,7 @@ class App(ctk.CTk):
 
         # 2. Round-Robin Loop
         for i, recipient in enumerate(emails):
-            if not self.is_shooting:
+            if not self.is_blasting:
                 break
             
             window_id = active_ids[i % len(active_ids)]
@@ -1271,7 +1277,7 @@ class App(ctk.CTk):
             if i < len(emails) - 1:
                 await asyncio.sleep(delay_sec)
 
-        self.log("Shooting session COMPLETED.")
+        self.log("Blasting session COMPLETED.")
         if self.is_blasting:
             self.on_start_blasting() # Toggle UI back
 
