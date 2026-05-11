@@ -446,7 +446,7 @@ class App(ctk.CTk):
         self.log_queue = queue.Queue()
         self.loop = None
         self.thread = None
-        self.is_shooting = False
+        self.is_blasting = False
         self.contexts = {} # {id: {"context": context, "page": page, "frame": frame}}
         self.parser = TextParser()
         self.converter = Converter(self.log)
@@ -1171,14 +1171,14 @@ class App(ctk.CTk):
         
         self.log("All previews generated.")
 
-    def on_start_shooting(self):
-        if self.is_shooting:
-            self.is_shooting = False
-            self.btn_start_shooting.configure(text="START SENDING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
+    def on_start_blasting(self):
+        if self.is_blasting:
+            self.is_blasting = False
+            self.btn_start_shooting.configure(text="START BLASTING", fg_color=COLOR["primary"], hover_color=COLOR["primary_hov"])
             self.log("Sending PAUSED. Waiting for current tasks to finish...")
         else:
-            self.is_shooting = True
-            self.btn_start_shooting.configure(text="STOP SENDING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
+            self.is_blasting = True
+            self.btn_start_shooting.configure(text="STOP BLASTING", fg_color=COLOR["danger"], hover_color=COLOR["danger_hov"])
             self.run_coro(self.shooter_engine_task())
 
     async def shooter_engine_task(self):
@@ -1190,13 +1190,13 @@ class App(ctk.CTk):
         
         if not emails:
             self.log("Error: No recipient emails found.")
-            self.on_start_shooting()
+            self.on_start_blasting()
             return
 
         active_ids = list(self.contexts.keys())
         if not active_ids:
             self.log("Error: No active windows found. Launch windows first.")
-            self.on_start_shooting()
+            self.on_start_blasting()
             return
 
         subject_template = self.entry_subject.get()
@@ -1272,8 +1272,8 @@ class App(ctk.CTk):
                 await asyncio.sleep(delay_sec)
 
         self.log("Shooting session COMPLETED.")
-        if self.is_shooting:
-            self.on_start_shooting() # Toggle UI back
+        if self.is_blasting:
+            self.on_start_blasting() # Toggle UI back
 
     async def automate_gmail_send(self, window_id, recipient, subject, body, attachment_path):
         if window_id not in self.contexts:
