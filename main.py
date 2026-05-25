@@ -1300,7 +1300,7 @@ class App(ctk.CTk):
             delay_inner, width=80, height=36, corner_radius=8,
             fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"], font=("Inter", 13)
         )
-        self.entry_delay.insert(0, "2")
+        self.entry_delay.insert(0, "0.5")
         self.entry_delay.pack(side="right")
         ctk.CTkLabel(settings_frame, text="⚠  Increasing delay helps avoid Gmail spam detection.", font=("Inter", 11), text_color=COLOR["muted"]).pack(anchor="w", pady=(0, 16))
 
@@ -1821,11 +1821,11 @@ class App(ctk.CTk):
             custom_filename_template = self.entry_filename.get()
             
             try:
-                delay_sec = float(self.entry_delay.get() or 2)
+                delay_sec = float(self.entry_delay.get() or 0.5)
                 delay_sec = max(0, delay_sec)  # Ensure non-negative
             except ValueError:
-                self.log("Warning: Invalid delay value. Defaulting to 2 seconds.")
-                delay_sec = 2.0
+                self.log("Warning: Invalid delay value. Defaulting to 0.5 seconds.")
+                delay_sec = 0.5
 
             self.log(f"Starting shoot for {len(emails)} emails using {len(active_ids)} windows...")
 
@@ -2005,11 +2005,11 @@ class App(ctk.CTk):
                 try:
                     if "mail.google.com" not in page.url:
                         await page.goto("https://mail.google.com", wait_until="networkidle", timeout=15000)
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(0.5)
                     break
                 except Exception as e:
                     if attempt < 2:
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.2)
                     else:
                         return False
 
@@ -2022,7 +2022,7 @@ class App(ctk.CTk):
                     except:
                         pass
                 if discard_btns:
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.1)
             except:
                 pass
 
@@ -2048,7 +2048,7 @@ class App(ctk.CTk):
                 # Fallback: Try keyboard shortcut
                 await page.keyboard.press("c")
             
-            await asyncio.sleep(random.uniform(0.3, 0.7))
+            await asyncio.sleep(random.uniform(0.1, 0.3))
 
             # Fill To with robust selectors
             self.log(f"[S{window_id}] Sending to {recipient}...")
@@ -2066,7 +2066,7 @@ class App(ctk.CTk):
             if to_input:
                 try:
                     await to_input.click(timeout=2000, force=True)
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.1)
                 except:
                     pass
                 try:
@@ -2074,9 +2074,9 @@ class App(ctk.CTk):
                 except:
                     pass
                 await to_input.type(recipient, delay=20)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 await page.keyboard.press("Enter")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
             else:
                 self.log(f"[W{window_id}] Could not find To field, attempting keyboard fallback")
                 await page.keyboard.type(recipient, delay=20)
@@ -2097,7 +2097,7 @@ class App(ctk.CTk):
             if subject_input:
                 try:
                     await subject_input.click(timeout=2000, force=True)
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
                 except:
                     pass
                 try:
@@ -2105,7 +2105,7 @@ class App(ctk.CTk):
                 except:
                     pass
                 await subject_input.type(subject, delay=20)
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.1)
             else:
                 self.log(f"[W{window_id}] Could not find Subject field, trying keyboard")
                 await page.keyboard.press("Tab")
@@ -2128,7 +2128,7 @@ class App(ctk.CTk):
             if body_input:
                 try:
                     await body_input.click(timeout=2000, force=True)
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.1)
                 except:
                     pass
                 
@@ -2284,7 +2284,7 @@ class App(ctk.CTk):
                     pass
             
             # Post-Send Verification: Check if compose window closed
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(0.3)
             try:
                 leftover_drafts = await page.locator('div[aria-label="Discard draft"]').all()
                 if leftover_drafts:
