@@ -1,0 +1,10 @@
+customtkinter
+playwright
+python-pptx
+pandas
+xlsxwriter
+pypdfium2
+supabase
+requests
+pillow
+pyinstaller
