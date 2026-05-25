@@ -1,0 +1,42 @@
+name: Build Standalone with PyInstaller
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build Windows Standalone
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: Install Playwright Browsers
+      run: |
+        python -m playwright install chromium
+
+
+
+    - name: Build Standalone with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --icon=rox-logo.png --add-data "rox-logo.png:." --hidden-import=customtkinter --hidden-import=playwright --hidden-import=supabase main.py -n Rox-Shooter
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Rox-Shooter
+        path: dist/Rox-Shooter.exe
+        retention-days: 1
