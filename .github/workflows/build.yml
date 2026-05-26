@@ -1,4 +1,4 @@
-name: Build Standalone with PyInstaller
+name: Build Standalone with Nuitka
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
+        pip install nuitka
         
     - name: Install Playwright Browsers
       run: |
@@ -30,13 +30,14 @@ jobs:
 
 
 
-    - name: Build Standalone with PyInstaller
+    - name: Build Standalone with Nuitka
       run: |
-        pyinstaller --onefile --windowed --icon=rox-logo.png --add-data "rox-logo.png:." --hidden-import=customtkinter --hidden-import=playwright --hidden-import=supabase main.py -n Rox-Shooter
+        python -c "import shutil; shutil.copy('main.py', 'Rox-Shooter.py')"
+        python -m nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --include-data-files=rox-logo.png=rox-logo.png --assume-yes-for-downloads Rox-Shooter.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Rox-Shooter
-        path: dist/Rox-Shooter.exe
+        path: Rox-Shooter.dist
         retention-days: 1
