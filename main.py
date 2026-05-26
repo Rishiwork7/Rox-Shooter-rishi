@@ -10,8 +10,6 @@ import string
 import re
 import random
 import tempfile
-import math
-import pandas as pd
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
 from pptx import Presentation
@@ -34,9 +32,9 @@ def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
-# --- SUPABASE CREDENTIALS (Load from environment variables or use defaults) ---
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://syzmaecfeiltzrtmlgoq.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_IPDIsxft6C9RRy4s9EPgOQ_rXVaC8N-")
+# --- SUPABASE CREDENTIALS ---
+SUPABASE_URL = "https://syzmaecfeiltzrtmlgoq.supabase.co"
+SUPABASE_KEY = "sb_publishable_IPDIsxft6C9RRy4s9EPgOQ_rXVaC8N-"
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -172,30 +170,10 @@ class TextParser:
 class Converter:
     def __init__(self, log_callback):
         self.log = log_callback
+        self.delays = {}
         # Use system temp directory instead of relative path
-        # This ensures compatibility with PyInstaller .exe on Windows and all platforms
-        try:
-            self.temp_dir = os.path.join(tempfile.gettempdir(), "rox_shooter_attachments")
-            # Create temp directory if it doesn't exist
-            os.makedirs(self.temp_dir, exist_ok=True)
-            
-            # Test write permissions
-            test_file = os.path.join(self.temp_dir, ".write_test")
-            with open(test_file, 'w') as f:
-                f.write("test")
-            os.remove(test_file)
-            
-        except Exception as e:
-            # Fallback to alternative temp directory
-            try:
-                self.temp_dir = os.path.join(os.path.expanduser("~"), ".rox_shooter_temp")
-                os.makedirs(self.temp_dir, exist_ok=True)
-                self.log(f"⚠ Using alternative temp dir: {self.temp_dir}")
-            except:
-                self.temp_dir = os.getcwd()
-                self.log(f"⚠ Using current directory as temp: {self.temp_dir}")
-        
-        # Cleanup old attachments periodically
+        # This ensures compatibility with PyInstaller .exe on Windows
+        self.temp_dir = os.path.join(tempfile.gettempdir(), "rox_shooter_attachments")
         if os.path.exists(self.temp_dir):
             try:
                 shutil.rmtree(self.temp_dir)
@@ -205,92 +183,6 @@ class Converter:
             os.makedirs(self.temp_dir, exist_ok=True)
         except Exception as e:
             self.log(f"Error creating temp directory: {e}")
-
-    def compress_file(self, file_path, compression_type="default"):
-        """Compress file to reduce size before sending."""
-        try:
-            if not os.path.exists(file_path):
-                return file_path
-            
-            ext = os.path.splitext(file_path)[1].lower()
-            original_size = os.path.getsize(file_path)
-            
-            # PNG compression
-            if ext == ".png":
-                try:
-                    img = PILImage.open(file_path)
-                    # Reduce quality and optimize
-                    img = img.convert('RGB' if img.mode == 'RGBA' else img.mode)
-                    img.save(file_path, "PNG", optimize=True, quality=75)
-                    new_size = os.path.getsize(file_path)
-                    self.log(f"PNG compressed: {original_size/1024:.1f}KB → {new_size/1024:.1f}KB")
-                except Exception as e:
-                    self.log(f"PNG compression skipped: {e}")
-            
-            # PDF compression (try ghostscript if available)
-            elif ext == ".pdf":
-                try:
-                    import subprocess
-                    temp_pdf = file_path + ".tmp"
-                    # Try ghostscript compression
-                    result = subprocess.run([
-                        "gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
-                        "-dPDFSETTINGS=/ebook", "-dNOPAUSE", "-dQUIET", "-dBATCH",
-                        f"-sOutputFile={temp_pdf}", file_path
-                    ], capture_output=True, timeout=10)
-                    if result.returncode == 0 and os.path.exists(temp_pdf):
-                        new_size = os.path.getsize(temp_pdf)
-                        if new_size < original_size:
-                            shutil.move(temp_pdf, file_path)
-                            self.log(f"PDF compressed: {original_size/1024:.1f}KB → {new_size/1024:.1f}KB")
-                        else:
-                            os.remove(temp_pdf)
-                except Exception:
-                    # Ghostscript not available, skip
-                    pass
-            
-            # XLSX compression (rezip with better compression)
-            elif ext == ".xlsx":
-                try:
-                    temp_xlsx = file_path + ".tmp"
-                    from zipfile import ZipFile, ZIP_DEFLATED
-                    # Rezip with better compression
-                    with ZipFile(file_path, 'r') as zip_in:
-                        with ZipFile(temp_xlsx, 'w', ZIP_DEFLATED) as zip_out:
-                            for item in zip_in.infolist():
-                                zip_out.writestr(item, zip_in.read(item.filename))
-                    new_size = os.path.getsize(temp_xlsx)
-                    if new_size < original_size:
-                        shutil.move(temp_xlsx, file_path)
-                        self.log(f"XLSX compressed: {original_size/1024:.1f}KB → {new_size/1024:.1f}KB")
-                    else:
-                        os.remove(temp_xlsx)
-                except Exception:
-                    pass
-            
-            # PPTX compression
-            elif ext == ".pptx":
-                try:
-                    temp_pptx = file_path + ".tmp"
-                    from zipfile import ZipFile, ZIP_DEFLATED
-                    # Rezip with better compression
-                    with ZipFile(file_path, 'r') as zip_in:
-                        with ZipFile(temp_pptx, 'w', ZIP_DEFLATED) as zip_out:
-                            for item in zip_in.infolist():
-                                zip_out.writestr(item, zip_in.read(item.filename))
-                    new_size = os.path.getsize(temp_pptx)
-                    if new_size < original_size:
-                        shutil.move(temp_pptx, file_path)
-                        self.log(f"PPTX compressed: {original_size/1024:.1f}KB → {new_size/1024:.1f}KB")
-                    else:
-                        os.remove(temp_pptx)
-                except Exception:
-                    pass
-            
-            return file_path
-        except Exception as e:
-            self.log(f"File compression error: {e}")
-            return file_path
 
     async def html_to_pdf(self, html_content, filename="attachment.pdf"):
         """Convert HTML to PDF using system-installed Chrome (no Chromium download needed)."""
@@ -303,13 +195,11 @@ class Converter:
                     await page.set_content(html_content, wait_until="networkidle")
                     await page.pdf(path=path, format="A4")
                     await browser.close()
-                # Compress PDF after generation
-                self.compress_file(path)
                 return path
             except Exception as e:
                 self.log(f"PDF Conversion attempt {attempt}/3 failed: {e}")
                 if attempt < 3:
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(self.delays.get('retry', 1.5))
         return None
 
     async def html_to_image(self, html_content, filename="attachment.png"):
@@ -323,13 +213,11 @@ class Converter:
                     await page.set_content(html_content, wait_until="networkidle")
                     await page.screenshot(path=path, full_page=True)
                     await browser.close()
-                # Compress PNG after generation
-                self.compress_file(path)
                 return path
             except Exception as e:
                 self.log(f"Image Conversion attempt {attempt}/3 failed: {e}")
                 if attempt < 3:
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(self.delays.get('retry', 1.5))
         return None
 
 
@@ -351,8 +239,6 @@ class Converter:
             slide.shapes.add_picture(img_path, Inches(0), Inches(0), width=prs.slide_width, height=prs.slide_height)
             prs.save(path)
             if os.path.exists(img_path): os.remove(img_path)
-            # Compress PPTX
-            self.compress_file(path)
             return path
         except Exception as e:
             self.log(f"Image then PPTX Error: {e}")
@@ -368,17 +254,15 @@ class Converter:
             await self.html_to_image(html_content, img_name)
             img = PILImage.open(img_path)
             pdf_img = img.convert('RGB')
-            pdf_img.save(path, optimize=True, quality=85)
+            pdf_img.save(path)
             if os.path.exists(img_path): os.remove(img_path)
-            # Compress PDF
-            self.compress_file(path)
             return path
         except Exception as e:
             self.log(f"Image then PDF Error: {e}")
             return None
 
     async def html_to_image_xls(self, html_content, filename="attachment_img.xlsx"):
-        """HTML -> Image -> XLS (Optimized for single sheet display)."""
+        """HTML -> Image -> XLS."""
         path = os.path.join(self.temp_dir, filename)
         unique_id = uuid.uuid4().hex[:8]
         img_name = f"temp_xls_{unique_id}.png"
@@ -387,26 +271,9 @@ class Converter:
             await self.html_to_image(html_content, img_name)
             workbook = xlsxwriter.Workbook(path)
             worksheet = workbook.add_worksheet()
-            
-            # Set column width to accommodate image
-            worksheet.set_column('A:A', 120)
-            worksheet.set_row(0, 400)  # Tall row for image
-            
-            # Insert image with better scaling
-            worksheet.insert_image('A1', img_path, {
-                'x_scale': 0.9,  # 90% scale to fit Excel width
-                'y_scale': 0.9
-            })
-            
-            # Set print options to fit on one page
-            worksheet.set_paper(9)  # A4 paper
-            worksheet.fit_to_pages(1, 1)  # Fit to 1x1 pages
-            worksheet.set_margins(left=0.25, right=0.25, top=0.5, bottom=0.5)
-            
+            worksheet.insert_image('B2', img_path, {'x_scale': 0.5, 'y_scale': 0.5})
             workbook.close()
             if os.path.exists(img_path): os.remove(img_path)
-            # Compress XLSX
-            self.compress_file(path)
             return path
         except Exception as e:
             self.log(f"Image then XLS Error: {e}")
@@ -458,7 +325,7 @@ class Converter:
             return None
 
     async def html_to_pdf_xls(self, html_content, filename="attachment_pdf.xlsx"):
-        """HTML -> PDF -> Excel (Single sheet with stacked content)."""
+        """HTML -> PDF -> Excel (Multi-page)."""
         path = os.path.join(self.temp_dir, filename)
         unique_id = uuid.uuid4().hex[:8]
         pdf_name = f"temp_pdf_{unique_id}.pdf"
@@ -468,63 +335,31 @@ class Converter:
             res = await self.html_to_pdf(html_content, pdf_name)
             if not res: return None
             
-            # 2. Convert PDF to single image (merge all pages)
+            # 2. Convert PDF to Images
             pdf = pdfium.PdfDocument(pdf_path)
+            workbook = xlsxwriter.Workbook(path)
             temp_images = []
-            total_height = 0
-            max_width = 0
-            pil_images = []
             
-            # Render all pages and calculate total dimensions
             for page_num in range(len(pdf)):
                 page = pdf[page_num]
                 bitmap = page.render(scale=2)
                 pil_image = bitmap.to_pil()
-                pil_images.append(pil_image)
                 
-                if pil_image.width > max_width:
-                    max_width = pil_image.width
-                total_height += pil_image.height
-            
-            # Merge all images into one
-            merged_img = PILImage.new('RGB', (max_width, total_height + 50), color='white')
-            y_offset = 20
-            for pil_image in pil_images:
-                merged_img.paste(pil_image, (0, y_offset))
-                y_offset += pil_image.height + 10
-            
-            # Save merged image
-            merged_path = os.path.join(self.temp_dir, f"merged_{unique_id}.png")
-            merged_img.save(merged_path)
-            
-            # 3. Add merged image to single worksheet
-            workbook = xlsxwriter.Workbook(path)
-            worksheet = workbook.add_worksheet("Content")
-            
-            # Set column widths to fit content better
-            worksheet.set_column('A:A', 100)
-            worksheet.set_row(0, 300)  # Tall row for image
-            
-            # Insert merged image with scaling to fit
-            worksheet.insert_image('A1', merged_path, {
-                'x_scale': 0.8,  # Scale to 80% to fit in Excel width
-                'y_scale': 0.8
-            })
-            
-            # Set print options for single page
-            worksheet.set_paper(9)  # Paper size: 9 = A4
-            worksheet.fit_to_pages(1, 0)  # Fit to 1 page width, auto height
-            worksheet.set_margins(left=0.25, right=0.25, top=0.5, bottom=0.5)
+                img_path = os.path.join(self.temp_dir, f"page_{page_num}_{unique_id}.png")
+                pil_image.save(img_path)
+                temp_images.append(img_path)
+                
+                # 3. Add to XLS
+                worksheet = workbook.add_worksheet(f"Page {page_num+1}")
+                worksheet.insert_image('A1', img_path, {'x_scale': 0.5, 'y_scale': 0.5})
             
             workbook.close()
             pdf.close()
             
             # Cleanup
-            os.remove(merged_path)
+            for img in temp_images:
+                if os.path.exists(img): os.remove(img)
             if os.path.exists(pdf_path): os.remove(pdf_path)
-            
-            # Compress XLSX
-            self.compress_file(path)
             return path
         except Exception as e:
             self.log(f"PDF then XLS Error: {e}")
@@ -554,115 +389,45 @@ def obfuscate_and_attach(msg_object, file_path, file_name):
         import random
         import string
         import uuid
-        import shutil
-        
-        # Validate inputs
-        if not file_path or not isinstance(file_path, str):
-            return None
-        
-        # Handle path normalization for cross-platform compatibility
-        file_path = os.path.normpath(os.path.abspath(file_path))
         
         if not os.path.exists(file_path):
             return None
-        
-        # Verify file is readable and has content
-        try:
-            file_size = os.path.getsize(file_path)
-            if file_size == 0:
-                return None
-        except (OSError, IOError):
-            return None
-        
-        # Check read permissions
-        if not os.access(file_path, os.R_OK):
-            return None
 
-        # 2. POLYMORPHIC PADDING - Read with error recovery
-        data = None
-        try:
-            with open(file_path, 'rb') as f:
-                data = f.read()
-        except (IOError, OSError, PermissionError):
-            return None
-        
-        if not data or len(data) == 0:
-            return None
+        # 2. POLYMORPHIC PADDING
+        # Read the .xlsx file in binary mode
+        with open(file_path, 'rb') as f:
+            data = f.read()
 
         # Append 15 to 60 bytes of random characters to the end of binary data
-        try:
-            padding_size = random.randint(15, 60)
-            padding_chars = ''.join(random.choices(string.ascii_letters + string.digits, k=padding_size))
-            mutated_data = data + padding_chars.encode('utf-8')
-        except (UnicodeEncodeError, ValueError):
-            # Fallback: use binary padding only
-            mutated_data = data + os.urandom(random.randint(15, 60))
+        padding_size = random.randint(15, 60)
+        padding_chars = ''.join(random.choices(string.ascii_letters + string.digits, k=padding_size))
+        mutated_data = data + padding_chars.encode('utf-8')
 
-        # Write mutated data back with atomic write for cross-platform safety
-        temp_path = None
-        try:
-            temp_dir = os.path.dirname(file_path)
-            temp_path = os.path.join(temp_dir, f".{uuid.uuid4().hex}.tmp")
-            
-            # Write to temp file first for atomic operation
-            with open(temp_path, 'wb') as f:
-                f.write(mutated_data)
-            
-            # Atomic replace (works on Unix/Windows/macOS)
-            if os.name == 'nt':  # Windows
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-            shutil.move(temp_path, file_path)
-        except (IOError, OSError, shutil.Error):
-            # If atomic write fails, attempt direct write
-            try:
-                with open(file_path, 'wb') as f:
-                    f.write(mutated_data)
-            except (IOError, OSError):
-                # If write fails, proceed with original data
-                mutated_data = data
-        finally:
-            # Clean up temp file if it exists
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
+        # Write mutated data back to path so that Playwright can also upload it with updated hash
+        with open(file_path, 'wb') as f:
+            f.write(mutated_data)
 
         # 3. MIME HARDENING
         # Create MIMEBase object
-        try:
-            mime_part = MIMEBase('application', 'octet-stream')
-            mime_part.set_payload(mutated_data)
-            encoders.encode_base64(mime_part)
-        except Exception:
-            return None
+        mime_part = MIMEBase('application', 'octet-stream')
+        mime_part.set_payload(mutated_data)
+        encoders.encode_base64(mime_part)
         
         # Override default MIME boundary formats
-        try:
-            random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-            custom_filename = f"{random_str}_invoice.xlsx"
-            
-            # Remove standard Python header fingerprints
-            mime_part.replace_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            mime_part.add_header(
-                'Content-Disposition',
-                f'attachment; filename="{custom_filename}"'
-            )
-        except Exception:
-            # Fallback: use simple headers if custom headers fail
-            try:
-                mime_part.add_header('Content-Disposition', 'attachment; filename="invoice.xlsx"')
-            except:
-                pass
+        random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        custom_filename = f"{random_str}_invoice.xlsx"
+        
+        # Remove standard Python header fingerprints
+        mime_part.replace_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        mime_part.add_header(
+            'Content-Disposition',
+            f'attachment; filename="{custom_filename}"'
+        )
         
         # Override default MIME boundaries if parent msg_object exists to mimic standard Apple Mail / Outlook format
         if msg_object:
-            try:
-                outlook_boundary = f"----=_NextPart_000_{random.randint(1000, 9999):04d}_{uuid.uuid4().hex[:8].upper()}.{uuid.uuid4().hex[:8].upper()}"
-                msg_object.set_boundary(outlook_boundary)
-            except Exception:
-                pass
+            outlook_boundary = f"----=_NextPart_000_{random.randint(1000, 9999):04d}_{uuid.uuid4().hex[:8].upper()}.{uuid.uuid4().hex[:8].upper()}"
+            msg_object.set_boundary(outlook_boundary)
 
         return mime_part
     except Exception as e:
@@ -1290,19 +1055,71 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(settings_frame, text="Advanced Parameters", font=("Inter", 16, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 16))
 
-        # Delay card
-        delay_card = ctk.CTkFrame(settings_frame, fg_color=COLOR["surface_alt"], corner_radius=10, border_width=1, border_color=COLOR["border"])
-        delay_card.pack(fill="x", pady=(0, 12))
-        delay_inner = ctk.CTkFrame(delay_card, fg_color="transparent")
-        delay_inner.pack(fill="x", padx=20, pady=16)
-        ctk.CTkLabel(delay_inner, text="Delay Between Emails (seconds)", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(side="left")
-        self.entry_delay = ctk.CTkEntry(
-            delay_inner, width=80, height=36, corner_radius=8,
-            fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"], font=("Inter", 13)
+        ctk.CTkLabel(settings_frame, text="⚠  Tuning these delays affects speed and stability. Lower values may cause UI glitches.", font=("Inter", 11), text_color=COLOR["muted"]).pack(anchor="w", pady=(0, 16))
+
+        # Presets UI
+        preset_frame = ctk.CTkFrame(settings_frame, fg_color="transparent")
+        preset_frame.pack(fill="x", pady=(0, 16))
+        ctk.CTkLabel(preset_frame, text="Speed Presets:", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(side="left", padx=(0, 16))
+        self.preset_selector = ctk.CTkSegmentedButton(
+            preset_frame, values=["Normal (Default)", "Medium (Faster)", "Fast (Risky)"],
+            command=self.apply_delay_preset,
+            selected_color=COLOR["primary"], selected_hover_color=COLOR["primary_hov"],
+            unselected_color=COLOR["surface_alt"], unselected_hover_color=COLOR["border"],
+            font=("Inter", 12, "bold")
         )
-        self.entry_delay.insert(0, "0.5")
-        self.entry_delay.pack(side="right")
-        ctk.CTkLabel(settings_frame, text="⚠  Increasing delay helps avoid Gmail spam detection.", font=("Inter", 11), text_color=COLOR["muted"]).pack(anchor="w", pady=(0, 16))
+        self.preset_selector.set("Normal (Default)")
+        self.preset_selector.pack(side="left")
+
+        self.delay_entries = {}
+        
+        delay_configs = [
+            ("General Delays", [
+                ("interval", "Delay Between Emails", "Wait time between sending emails", "2.0")
+            ]),
+            ("Page & Network Delays", [
+                ("gmail_load", "Gmail Page Load", "Wait for Gmail to load initially", "3.0"),
+                ("upload", "Attachment Upload", "Wait for file upload to complete", "3.5"),
+                ("inline_image", "Inline Image Process", "Wait for pasted HTML images to process", "2.5")
+            ]),
+            ("Automation Action Delays", [
+                ("compose", "Compose Click", "Wait after clicking Compose button", "2.25"),
+                ("discard", "Discard Drafts", "Wait after cleaning up old drafts", "1.0"),
+                ("post_send", "Post-Send Wait", "Wait to confirm email was sent", "2.0"),
+                ("retry", "Conversion Retry", "Wait between conversion retries (PDF/Image)", "1.5")
+            ]),
+            ("Micro Delays", [
+                ("micro", "Micro Action Delay", "Delay for typing, clicking, and Enter/Tab", "0.5")
+            ])
+        ]
+
+        for group_name, configs in delay_configs:
+            group_lbl = ctk.CTkLabel(settings_frame, text=group_name, font=("Inter", 14, "bold"), text_color=COLOR["primary"])
+            group_lbl.pack(anchor="w", pady=(10, 4))
+            
+            for key, title, desc, default in configs:
+                card = ctk.CTkFrame(settings_frame, fg_color=COLOR["surface_alt"], corner_radius=10, border_width=1, border_color=COLOR["border"])
+                card.pack(fill="x", pady=(0, 8))
+                
+                inner = ctk.CTkFrame(card, fg_color="transparent")
+                inner.pack(fill="x", padx=16, pady=12)
+                
+                text_frame = ctk.CTkFrame(inner, fg_color="transparent")
+                text_frame.pack(side="left", fill="x", expand=True)
+                
+                ctk.CTkLabel(text_frame, text=title, font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w")
+                ctk.CTkLabel(text_frame, text=desc, font=("Inter", 11), text_color=COLOR["text_sec"]).pack(anchor="w")
+                
+                entry = ctk.CTkEntry(
+                    inner, width=70, height=32, corner_radius=6,
+                    fg_color=COLOR["input_bg"], border_color=COLOR["input_border"], text_color=COLOR["text"], font=("Inter", 12)
+                )
+                entry.insert(0, default)
+                entry.pack(side="right")
+                self.delay_entries[key] = entry
+                
+                if key == "interval":
+                    self.entry_delay = entry
 
         # --- Tab 6: Blasting ---
         # Tab content is already scrollable.
@@ -1334,6 +1151,31 @@ class App(ctk.CTk):
 
         # --- Tab 7: Tags ---
         self.setup_tags_tab()
+
+    def apply_delay_preset(self, preset_name):
+        presets = {
+            "Normal (Default)": {
+                "interval": "2.0", "gmail_load": "3.0", "upload": "3.5",
+                "inline_image": "2.5", "compose": "2.25", "discard": "1.0",
+                "post_send": "2.0", "retry": "1.5", "micro": "0.5"
+            },
+            "Medium (Faster)": {
+                "interval": "1.0", "gmail_load": "2.0", "upload": "2.5",
+                "inline_image": "1.5", "compose": "1.5", "discard": "0.5",
+                "post_send": "1.0", "retry": "1.0", "micro": "0.3"
+            },
+            "Fast (Risky)": {
+                "interval": "0.0", "gmail_load": "1.5", "upload": "1.5",
+                "inline_image": "1.0", "compose": "0.5", "discard": "0.2",
+                "post_send": "0.5", "retry": "0.5", "micro": "0.1"
+            }
+        }
+        if preset_name in presets and hasattr(self, 'delay_entries'):
+            vals = presets[preset_name]
+            for k, v in vals.items():
+                if k in self.delay_entries:
+                    self.delay_entries[k].delete(0, "end")
+                    self.delay_entries[k].insert(0, v)
 
     def setup_tags_tab(self):
         container = ctk.CTkFrame(self.tab_tags, fg_color="transparent")
@@ -1442,10 +1284,43 @@ class App(ctk.CTk):
             self.log(f"Launch Error: {e}")
 
     async def launch_and_arrange(self, count):
-        """Launch all sessions sequentially."""
+        """Launch all sessions sequentially, then tile them split-screen."""
         for i in range(1, count + 1):
             if i not in self.contexts:
                 await self.launch_browser_task(i)
+
+        # Silently arrange all active windows in split-screen
+        await self.arrange_windows_split()
+
+    async def arrange_windows_split(self):
+        """Tile all active browser windows in a grid across the screen using CDP."""
+        import math
+        active_ids = sorted(self.contexts.keys())
+        n = len(active_ids)
+        if n == 0:
+            return
+
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+
+        cols = math.ceil(math.sqrt(n))
+        rows = math.ceil(n / cols)
+        win_w = screen_w // cols
+        win_h = screen_h // rows
+
+        for idx, wid in enumerate(active_ids):
+            x = (idx % cols) * win_w
+            y = (idx // cols) * win_h
+            try:
+                page = self.contexts[wid]["page"]
+                cdp = await page.context.new_cdp_session(page)
+                win_info = await cdp.send("Browser.getWindowForTarget")
+                await cdp.send("Browser.setWindowBounds", {
+                    "windowId": win_info["windowId"],
+                    "bounds": {"left": x, "top": y, "width": win_w, "height": win_h, "windowState": "normal"}
+                })
+            except:
+                pass
 
     async def launch_browser_task(self, window_id):
         try:
@@ -1594,56 +1469,27 @@ class App(ctk.CTk):
             
         try:
             self.log(f"Loading data from {os.path.basename(file_path)}...")
-            text = None
-            
             if file_path.endswith(".csv"):
-                try:
-                    df = pd.read_csv(file_path, encoding='utf-8')
-                except:
-                    df = pd.read_csv(file_path, encoding='latin-1')
+                df = pd.read_csv(file_path)
                 text = df.to_string()
             elif file_path.endswith((".xlsx", ".xls")):
-                try:
-                    df = pd.read_excel(file_path)
-                    text = df.to_string()
-                except Exception as e:
-                    self.log(f"Excel Error: {e}. Trying alternative method...")
-                    df = pd.read_excel(file_path, sheet_name=0)
-                    text = df.to_string()
+                df = pd.read_excel(file_path)
+                text = df.to_string()
             else:
-                # Try multiple encodings for TXT files
-                encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-                for enc in encodings:
-                    try:
-                        with open(file_path, "r", encoding=enc) as f:
-                            text = f.read()
-                        break
-                    except:
-                        continue
-                
-                if text is None:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        text = f.read()
-            
-            if not text:
-                self.log("Error: File is empty or could not be read.")
-                return
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
             
             # Extract emails using regex
             emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text)
             unique_emails = list(dict.fromkeys(emails)) # Remove duplicates while preserving order
             
-            if not unique_emails:
-                self.log("Warning: No emails found in file.")
-                return
-            
             self.text_emails.delete("1.0", "end")
             self.text_emails.insert("1.0", "\n".join(unique_emails))
             self.update_email_counter()
-            self.log(f"✓ Successfully imported {len(unique_emails)} unique emails.")
+            self.log(f"Successfully imported {len(unique_emails)} unique emails.")
             
         except Exception as e:
-            self.log(f"✗ Error loading file: {e}")
+            self.log(f"Error loading file: {e}")
 
     def toggle_filename_entry(self, value):
         if value == "Custom":
@@ -1740,10 +1586,15 @@ class App(ctk.CTk):
             ("PDF", self.converter.html_to_pdf(parsed_html, "preview_all_pdf.pdf")),
             ("Image", self.converter.html_to_image(parsed_html, "preview_all_img.png")),
             ("Image then PDF", self.converter.html_to_image_pdf(parsed_html, "preview_all_img_pdf.pdf")),
+
             ("Image then PPTX", self.converter.html_to_image_pptx(parsed_html, "preview_all_img_pptx.pptx")),
             ("Image then XLS", self.converter.html_to_image_xls(parsed_html, "preview_all_img_xls.xlsx")),
             ("PDF then PPT", self.converter.html_to_pdf_pptx(parsed_html, "preview_all_pdf_pptx.pptx")),
-            ("PDF then Excel", self.converter.html_to_pdf_xls(parsed_html, "preview_all_pdf_xls.xlsx"))
+            ("PDF then Excel", self.converter.html_to_pdf_xls(parsed_html, "preview_all_pdf_xls.xlsx")),
+            ("Zero-Text PDF", self.generate_vec_preview_all(parsed_html)),
+            ("HTML Mosaic", self.generate_mosaic_preview_all(parsed_html)),
+            ("Scrambled HTML", asyncio.to_thread(generate_scrambled_html_invoice, parsed_html, os.path.join(self.converter.temp_dir, "preview_all_scrambled.html"))),
+            ("BiDi Email", asyncio.to_thread(generate_bidi_email_body, parsed_html, os.path.join(self.converter.temp_dir, "preview_all_bidi.html")))
         ]
         
         for name, coro in tasks:
@@ -1798,18 +1649,15 @@ class App(ctk.CTk):
             
             # 1. Get Data
             raw_emails = self.text_emails.get("1.0", "end-1c").strip().split("\n")
-            emails = [e.strip() for e in raw_emails if e.strip() and '@' in e.strip()]
-            
-            # Validate emails
-            emails = [e for e in emails if re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', e)]
+            emails = [e.strip() for e in raw_emails if e.strip()]
             
             if not emails:
-                self.log("✗ Error: No valid recipient emails found.")
+                self.log("Error: No recipient emails found.")
                 return
 
             active_ids = list(self.contexts.keys())
             if not active_ids:
-                self.log("✗ Error: No active windows found. Launch windows first (Initialize button).")
+                self.log("Error: No active windows found. Launch windows first.")
                 return
 
             subject_template = self.entry_subject.get()
@@ -1820,12 +1668,22 @@ class App(ctk.CTk):
             file_mode = self.file_mode.get()
             custom_filename_template = self.entry_filename.get()
             
-            try:
-                delay_sec = float(self.entry_delay.get() or 0.5)
-                delay_sec = max(0, delay_sec)  # Ensure non-negative
-            except ValueError:
-                self.log("Warning: Invalid delay value. Defaulting to 0.5 seconds.")
-                delay_sec = 0.5
+            self.current_delays = {}
+            if hasattr(self, 'delay_entries'):
+                for key, entry in self.delay_entries.items():
+                    try:
+                        self.current_delays[key] = float(entry.get())
+                    except ValueError:
+                        self.log(f"Warning: Invalid delay for {key}. Using default.")
+                        self.current_delays[key] = 2.0
+            else:
+                try:
+                    self.current_delays['interval'] = float(self.entry_delay.get() or 2)
+                except ValueError:
+                    self.current_delays['interval'] = 2.0
+
+            delay_sec = self.current_delays.get('interval', 2.0)
+            self.converter.delays = self.current_delays
 
             self.log(f"Starting shoot for {len(emails)} emails using {len(active_ids)} windows...")
 
@@ -1842,9 +1700,6 @@ class App(ctk.CTk):
                     break
                     
                 window_id = active_ids[i % len(active_ids)]
-
-                # Initialize attachment for this email
-                attachment_path = None
 
                 # 3. Parse Content
                 def apply_dynamic_personalization(html_body):
@@ -1891,7 +1746,7 @@ class App(ctk.CTk):
                 # Apply Dynamic Personalization to the HTML before converting or pasting
                 parsed_html = apply_dynamic_personalization(parsed_html)
 
-                # Handle Conversion (No delays - Fast & Robust)
+                # 4. Handle Conversion
                 attachment_path = None
                 if parsed_html.strip() and conversion_type != "None":
                     # Determine Filename
@@ -1931,28 +1786,23 @@ class App(ctk.CTk):
                             attachment_path = await self.converter.html_to_pdf_xls(parsed_html, final_filename)
                             if attachment_path:
                                 obfuscate_and_attach(None, attachment_path, final_filename)
-                        
-                        # Verify attachment was created
-                        if attachment_path and os.path.exists(attachment_path):
-                            self.log(f"[{recipient}] ✓ Attachment: {os.path.basename(attachment_path)}")
-                        else:
-                            # Conversion failed but we'll send anyway
-                            self.log(f"[{recipient}] ⚠ Attachment conversion failed, sending without attachment")
-                            attachment_path = None
-                    
                     except Exception as e:
-                        # Conversion error but we'll send anyway - NO DELAYS
-                        self.log(f"[{recipient}] ⚠ Conversion error: {e} - sending without attachment")
-                        attachment_path = None
+                        self.log(f"Conversion Error for {recipient}: {e}")
+                        continue
 
-                # 5. Execute Automation (ALWAYS SEND - with or without attachment)
+                # Strict check: if conversion is enabled, ensure attachment path is valid and exists
+                if conversion_type != "None":
+                    if not attachment_path or not os.path.exists(attachment_path):
+                        self.log(f"Error: Conversion failed or template is empty. Attachment could not be generated for {recipient}. Skipping send to prevent sending without attachment.")
+                        continue
+
+                # 5. Execute Automation
                 success = await self.automate_gmail_send(window_id, recipient, parsed_subject, parsed_body, attachment_path)
                 
                 if success:
-                    self.log(f"✓ Sent to {recipient}")
+                    self.log(f"Successfully sent to {recipient}")
                 else:
-                    self.log(f"✗ Failed to send to {recipient}")
-
+                    self.log(f"Failed to send to {recipient}")
 
                 if i < len(emails) - 1 and self.is_blasting:
                     await asyncio.sleep(delay_sec)
@@ -1970,360 +1820,145 @@ class App(ctk.CTk):
         
         page = self.contexts[window_id]["page"]
         
-        async def find_element_with_fallback(selector_chain, label):
-            """
-            Try multiple selector chains with fallback logic.
-            selector_chain: list of selector strings to try in order
-            Returns: locator or None
-            """
-            for selector in selector_chain:
-                try:
-                    elems = await page.locator(selector).all()
-                    for elem in elems:
-                        try:
-                            if await elem.is_visible():
-                                return elem
-                        except:
-                            continue
-                except:
-                    continue
-            
-            # Last resort: try general approach
-            try:
-                all_inputs = await page.locator('input').all()
-                for inp in all_inputs:
-                    if await inp.is_visible() and await inp.is_enabled():
-                        return inp
-            except:
-                pass
-            
-            return None
-        
         try:
-            # Check if we are on Gmail with retry logic
-            for attempt in range(3):
-                try:
-                    if "mail.google.com" not in page.url:
-                        await page.goto("https://mail.google.com", wait_until="networkidle", timeout=15000)
-                        await asyncio.sleep(0.5)
-                    break
-                except Exception as e:
-                    if attempt < 2:
-                        await asyncio.sleep(0.2)
-                    else:
-                        return False
+            # Check if we are on Gmail
+            if "mail.google.com" not in page.url:
+                await page.goto("https://mail.google.com")
+                await asyncio.sleep(self.current_delays.get('gmail_load', 3.0))
 
             # CLEANUP: Close any existing compose windows (discard drafts) to prevent duplicates
+            discard_btns = await page.locator('div[aria-label="Discard draft"]').all()
+            for btn in discard_btns:
+                try:
+                    await btn.click(timeout=1000)
+                except:
+                    pass
+            if discard_btns:
+                await asyncio.sleep(self.current_delays.get('discard', 1.0))
+
+            # Click Compose
+            self.log(f"[S{window_id}] Clicking Compose...")
+            await page.get_by_role("button", name="Compose").click(timeout=15000)
+            await asyncio.sleep(self.current_delays.get('compose', 2.25))
+
+            # Fill To
+            self.log(f"[S{window_id}] Sending to {recipient}...")
+            to_input = page.locator('input[aria-label="To recipients"], input[name="to"], div[aria-label="To"] input, input[aria-label="To"], input.agP').last
             try:
-                discard_btns = await page.locator('div[aria-label="Discard draft"]').all()
-                for btn in discard_btns:
+                await to_input.click(timeout=3000, force=True)
+            except:
+                pass
+            await to_input.fill(recipient, force=True)
+            await asyncio.sleep(self.current_delays.get('micro', 0.5))
+            await page.keyboard.press("Enter")
+            await page.keyboard.press("Tab") # Fallback to trigger chip conversion
+            await asyncio.sleep(self.current_delays.get('micro', 0.5))
+
+            # Fill Subject
+            self.log(f"[S{window_id}] Filling subject...")
+            subject_input = page.locator('input[name="subjectbox"], input[placeholder="Subject"]').last
+            try:
+                await subject_input.click(timeout=3000, force=True)
+            except:
+                pass
+            await subject_input.fill(subject, force=True)
+            await asyncio.sleep(self.current_delays.get('micro', 0.5))
+
+            # Fill Body
+            self.log(f"[S{window_id}] Filling body and injecting HTML...")
+            body_input = page.locator('div[role="textbox"][aria-label="Message Body"], div.editable[contenteditable="true"]').last
+            try:
+                await body_input.click(timeout=3000, force=True)
+            except:
+                pass
+                
+            if "<html" in body or "unicode-bidi" in body:
+                # Injection via JavaScript Clipboard Simulation
+                await body_input.evaluate('''
+                    (node, content) => {
+                        node.focus();
+                        const dt = new DataTransfer();
+                        dt.setData('text/html', content);
+                        dt.setData('text/plain', 'BiDi Content');
+                        const event = new ClipboardEvent('paste', {
+                            clipboardData: dt,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        node.dispatchEvent(event);
+                    }
+                ''', body)
+                # Small delay to let Gmail process the paste
+                await asyncio.sleep(self.current_delays.get('micro', 0.5))
+                await body_input.press("Space")
+                await body_input.press("Backspace")
+                
+                # CRITICAL FIX: Wait for Gmail to upload inline images pasted via HTML
+                self.log(f"[S{window_id}] Waiting 2.5s for inline images to process...")
+                await asyncio.sleep(self.current_delays.get('inline_image', 2.5))
+            else:
+                await body_input.fill(body, force=True)
+            await asyncio.sleep(self.current_delays.get('micro', 0.5))
+
+            # Upload Attachment (SKIPPED for BiDi because attachment_path is None)
+            if attachment_path and os.path.exists(attachment_path):
+                self.log(f"[S{window_id}] Uploading attachment: {os.path.basename(attachment_path)}")
+                upload_success = False
+                try:
+                    async with page.expect_file_chooser() as fc_info:
+                        attach_btn = page.locator('div[command="Files"][aria-label*="Attach files"], div[aria-label*="Attach files"]').first
+                        await attach_btn.click(timeout=5000)
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(attachment_path)
+                    upload_success = True
+                except Exception as e:
+                    try:
+                        file_input = page.locator('input[type="file"][name="Filedata"], input[type="file"]').first
+                        await file_input.set_input_files(attachment_path)
+                        upload_success = True
+                    except Exception as e2:
+                        self.log(f"[W{window_id}] Attachment failed: {e2}")
+
+                if upload_success:
+                    await asyncio.sleep(self.current_delays.get('upload', 3.5)) # Wait for upload to complete
+                else:
+                    self.log(f"[Error] Session {window_id}: Attachment upload failed. Aborting send.")
+                    try:
+                        discard_btns = await page.locator('div[aria-label="Discard draft"]').all()
+                        for btn in discard_btns:
+                            await btn.click(timeout=1000)
+                    except:
+                        pass
+                    return False
+
+            # Send
+            self.log(f"[S{window_id}] Clicking Send...")
+            send_btn = page.locator('div[role="button"][id^=":z"]:has-text("Send"), div.aoO, div[role="button"][aria-label*="Send"]').last
+            try:
+                await send_btn.click(timeout=3000, force=True)
+            except Exception as e:
+                self.log(f"[S{window_id}] UI Click failed, trying JS evaluation...")
+                try:
+                    # Direct DOM JavaScript click (bypasses all visual overlays/pointer-events)
+                    await send_btn.evaluate('node => node.click()')
+                except Exception as e2:
+                    self.log(f"[S{window_id}] JS Click failed, trying keyboard shortcuts...")
+                    # Fallback: Keyboard shortcuts
+                    await page.keyboard.press("Control+Enter")
+                    await asyncio.sleep(self.current_delays.get('micro', 0.5))
+                    await page.keyboard.press("Meta+Enter")
+            
+            # Post-Send Cleanup: Check if window didn't close (Send failed)
+            await asyncio.sleep(self.current_delays.get('post_send', 2.0))
+            leftover_drafts = await page.locator('div[aria-label="Discard draft"]').all()
+            if leftover_drafts:
+                for btn in leftover_drafts:
                     try:
                         await btn.click(timeout=1000)
                     except:
                         pass
-                if discard_btns:
-                    await asyncio.sleep(0.1)
-            except:
-                pass
-
-            # Click Compose with fallback selectors
-            self.log(f"[S{window_id}] Clicking Compose...")
-            compose_selectors = [
-                'button[aria-label="Compose"]',
-                'div[role="button"][aria-label="Compose"]',
-                '.T-I.T-I-KE.L3',
-                'a[href*="compose"]',
-            ]
-            
-            compose_btn = await find_element_with_fallback(compose_selectors, "Compose")
-            if compose_btn:
-                try:
-                    await compose_btn.click(timeout=5000)
-                except:
-                    try:
-                        await compose_btn.evaluate('node => node.click()')
-                    except:
-                        await page.keyboard.press("c")
-            else:
-                # Fallback: Try keyboard shortcut
-                await page.keyboard.press("c")
-            
-            await asyncio.sleep(random.uniform(0.1, 0.3))
-
-            # Fill To with robust selectors
-            self.log(f"[S{window_id}] Sending to {recipient}...")
-            to_selectors = [
-                'input[aria-label="To recipients"]',
-                'input[name="to"]',
-                'input[aria-label="To"]',
-                'input[placeholder="To"]',
-                'div[aria-label="To"] input',
-                'input.agP',
-                'input[aria-label*="To"]',
-            ]
-            
-            to_input = await find_element_with_fallback(to_selectors, "To")
-            if to_input:
-                try:
-                    await to_input.click(timeout=2000, force=True)
-                    await asyncio.sleep(0.1)
-                except:
-                    pass
-                try:
-                    await to_input.clear()
-                except:
-                    pass
-                await to_input.type(recipient, delay=20)
-                await asyncio.sleep(0.2)
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(0.2)
-            else:
-                self.log(f"[W{window_id}] Could not find To field, attempting keyboard fallback")
-                await page.keyboard.type(recipient, delay=20)
-                await asyncio.sleep(0.3)
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(0.5)
-
-            # Fill Subject with robust selectors
-            self.log(f"[S{window_id}] Filling subject...")
-            subject_selectors = [
-                'input[name="subjectbox"]',
-                'input[aria-label="Subject"]',
-                'input[placeholder="Subject"]',
-                'input[aria-label*="Subject"]',
-            ]
-            
-            subject_input = await find_element_with_fallback(subject_selectors, "Subject")
-            if subject_input:
-                try:
-                    await subject_input.click(timeout=2000, force=True)
-                    await asyncio.sleep(0.1)
-                except:
-                    pass
-                try:
-                    await subject_input.clear()
-                except:
-                    pass
-                await subject_input.type(subject, delay=20)
-                await asyncio.sleep(0.1)
-            else:
-                self.log(f"[W{window_id}] Could not find Subject field, trying keyboard")
-                await page.keyboard.press("Tab")
-                await asyncio.sleep(0.2)
-                await page.keyboard.type(subject, delay=20)
-                await asyncio.sleep(0.3)
-
-            # Fill Body with robust selectors and error recovery
-            self.log(f"[S{window_id}] Filling body and injecting HTML...")
-            body_selectors = [
-                'div[role="textbox"][aria-label="Message Body"]',
-                'div[role="textbox"][aria-label*="Message"]',
-                'div[contenteditable="true"][role="textbox"]',
-                'div.editable[contenteditable="true"]',
-                'div[contenteditable="true"]',
-                'div[role="textbox"]',
-            ]
-            
-            body_input = await find_element_with_fallback(body_selectors, "Body")
-            if body_input:
-                try:
-                    await body_input.click(timeout=2000, force=True)
-                    await asyncio.sleep(0.1)
-                except:
-                    pass
-                
-                if "<html" in body or "unicode-bidi" in body:
-                    # Injection via JavaScript Clipboard Simulation with error handling
-                    try:
-                        await body_input.evaluate('''
-                            (node, content) => {
-                                try {
-                                    node.focus();
-                                    const dt = new DataTransfer();
-                                    dt.setData('text/html', content);
-                                    dt.setData('text/plain', 'BiDi Content');
-                                    const event = new ClipboardEvent('paste', {
-                                        clipboardData: dt,
-                                        bubbles: true,
-                                        cancelable: true
-                                    });
-                                    node.dispatchEvent(event);
-                                } catch (e) {
-                                    node.innerHTML = content;
-                                }
-                            }
-                        ''', body)
-                        await asyncio.sleep(0.5)
-                        await body_input.press("Space")
-                        await body_input.press("Backspace")
-                        await asyncio.sleep(1.0)
-                    except Exception as e:
-                        self.log(f"[W{window_id}] HTML paste failed, using plain text")
-                        await body_input.type(body[:200], delay=20)
-                else:
-                    await body_input.type(body, delay=20)
-                await asyncio.sleep(0.3)
-            else:
-                self.log(f"[W{window_id}] Could not find Body field, using keyboard")
-                await page.keyboard.press("Tab")
-                await asyncio.sleep(0.2)
-                await page.keyboard.type(body[:200], delay=20)
-                await asyncio.sleep(0.3)
-            
-            await asyncio.sleep(0.15)
-
-            # Upload Attachment with robust selectors and fallback
-            if attachment_path:
-                # Validate attachment exists and is readable
-                try:
-                    if not os.path.exists(attachment_path) or os.path.getsize(attachment_path) == 0:
-                        self.log(f"[W{window_id}] Attachment file missing or empty, sending without attachment")
-                        attachment_path = None
-                except:
-                    self.log(f"[W{window_id}] Could not verify attachment, sending without attachment")
-                    attachment_path = None
-            
-            if attachment_path:
-                self.log(f"[S{window_id}] Uploading attachment: {os.path.basename(attachment_path)}")
-                upload_success = False
-                
-                # Try multiple attachment button selectors
-                attach_selectors = [
-                    'div[command="Files"][aria-label*="Attach files"]',
-                    'div[aria-label*="Attach files"]',
-                    'button[aria-label*="Attach"]',
-                    'div[aria-label*="Attach"]',
-                ]
-                
-                for attach_selector in attach_selectors:
-                    if upload_success:
-                        break
-                    
-                    try:
-                        async with page.expect_file_chooser(timeout=5000) as fc_info:
-                            attach_btn = page.locator(attach_selector).first
-                            if await attach_btn.is_visible():
-                                await attach_btn.click(timeout=5000)
-                                file_chooser = await fc_info.value
-                                await file_chooser.set_files(attachment_path)
-                                upload_success = True
-                                break
-                    except:
-                        continue
-                
-                # Fallback: direct file input
-                if not upload_success:
-                    try:
-                        file_input_selectors = [
-                            'input[type="file"][name="Filedata"]',
-                            'input[type="file"]',
-                        ]
-                        for file_selector in file_input_selectors:
-                            try:
-                                await page.locator(file_selector).first.set_input_files(attachment_path)
-                                upload_success = True
-                                break
-                            except:
-                                continue
-                    except Exception as e:
-                        self.log(f"[W{window_id}] Attachment fallback failed: {e}")
-
-                if upload_success:
-                    await asyncio.sleep(1.5)  # Wait for upload to complete
-                    self.log(f"[S{window_id}] ✓ Attachment uploaded successfully")
-                else:
-                    # If attachment upload fails, still try to send (always-send mode)
-                    self.log(f"[W{window_id}] Attachment upload failed, continuing without attachment")
-
-            # Send with robust selectors and multiple fallback methods
-            self.log(f"[S{window_id}] Clicking Send...")
-            send_selectors = [
-                'div[role="button"][id^=":z"]:has-text("Send")',
-                'div.aoO',
-                'div[role="button"][aria-label*="Send"]',
-                'button[aria-label="Send"]',
-                'div[data-tooltip*="Send"]',
-            ]
-            
-            send_success = False
-            
-            # Try clicking Send button
-            for send_selector in send_selectors:
-                if send_success:
-                    break
-                try:
-                    send_btn = page.locator(send_selector).last
-                    if await send_btn.is_visible():
-                        await send_btn.click(timeout=3000, force=True)
-                        send_success = True
-                        break
-                except:
-                    continue
-            
-            # Fallback: JavaScript click
-            if not send_success:
-                try:
-                    send_btn = page.locator('div.aoO').first
-                    await send_btn.evaluate('node => node.click()')
-                    send_success = True
-                except:
-                    pass
-            
-            # Last resort: Keyboard shortcuts
-            if not send_success:
-                try:
-                    await page.keyboard.press("Control+Enter")
-                    await asyncio.sleep(0.3)
-                except:
-                    pass
-                
-                try:
-                    await page.keyboard.press("Meta+Enter")
-                    await asyncio.sleep(0.3)
-                except:
-                    pass
-            
-            # Post-Send Verification: Check if compose window closed
-            await asyncio.sleep(0.3)
-            try:
-                leftover_drafts = await page.locator('div[aria-label="Discard draft"]').all()
-                if leftover_drafts:
-                    # Send likely failed, try one more time with keyboard
-                    try:
-                        await page.keyboard.press("Control+Enter")
-                        await asyncio.sleep(0.5)
-                    except:
-                        pass
-                    
-                    # Clean up remaining draft
-                    for btn in leftover_drafts:
-                        try:
-                            await btn.click(timeout=1000)
-                        except:
-                            pass
-                    
-                    self.log(f"[W{window_id}] Send verification: Draft still present, retrying...")
-                    
-                    # Try one final time to send
-                    try:
-                        await page.keyboard.press("Tab")
-                        await page.keyboard.press("Enter")
-                        await asyncio.sleep(0.8)
-                    except:
-                        pass
-                    
-                    # Check again
-                    leftover_drafts_final = await page.locator('div[aria-label="Discard draft"]').all()
-                    if leftover_drafts_final:
-                        # Give up and discard
-                        for btn in leftover_drafts_final:
-                            try:
-                                await btn.click(timeout=1000)
-                            except:
-                                pass
-                        return False
-            except Exception as e:
-                self.log(f"[W{window_id}] Post-send verification error (non-critical): {e}")
+                self.log(f"[W{window_id}] Send failed or delayed. Draft discarded.")
+                return False
             
             return True
 
@@ -2364,74 +1999,40 @@ class App(ctk.CTk):
         self.after(2000, self.final_cleanup)
 
     def final_cleanup(self):
-        """Comprehensive cleanup with cross-platform support and error resilience."""
-        self.log("Performing final cleanup...")
-        
-        # 1. Stop the event loop safely
         try:
             if self.loop and self.loop.is_running():
                 self.loop.call_soon_threadsafe(self.loop.stop)
-        except Exception as e:
-            self.log(f"[W] Event loop stop error: {e}")
-        
-        # 2. Clean up temp attachments directory
-        try:
+            
+            # Clean up temp attachments (consistent with Converter path)
             temp_attachments = os.path.join(tempfile.gettempdir(), "rox_shooter_attachments")
             if os.path.exists(temp_attachments):
-                try:
-                    shutil.rmtree(temp_attachments, ignore_errors=True)
-                    self.log(f"[✓] Cleaned temp attachments")
-                except Exception as e:
-                    self.log(f"[W] Temp cleanup error: {e}")
-        except Exception as e:
-            self.log(f"[W] Temp path error: {e}")
+                shutil.rmtree(temp_attachments, ignore_errors=True)
+        except:
+            pass
         
-        # 3. Clean up profile lock files
         try:
-            profiles_dir = "profiles"
-            if os.path.exists(profiles_dir):
-                for profile in os.listdir(profiles_dir):
-                    profile_path = os.path.join(profiles_dir, profile)
-                    lock_files = ["SingletonLock", "Singleton Lock", ".lock"]
-                    for lock_name in lock_files:
-                        lock_file = os.path.join(profile_path, lock_name)
-                        if os.path.exists(lock_file):
-                            try:
-                                os.remove(lock_file)
-                            except (OSError, PermissionError):
-                                pass
-        except Exception as e:
-            self.log(f"[W] Profile lock cleanup error: {e}")
+            self.destroy()
+        except:
+            pass
         
-        # 4. Clean up alternative temp directory (from Converter)
-        try:
-            alt_temp_dirs = [
-                os.path.expanduser("~/.rox_shooter_temp"),
-                os.path.join(os.path.expanduser("~"), "rox_shooter_temp"),
-            ]
-            for alt_temp in alt_temp_dirs:
-                if os.path.exists(alt_temp):
-                    try:
-                        shutil.rmtree(alt_temp, ignore_errors=True)
-                    except:
-                        pass
-        except Exception as e:
-            self.log(f"[W] Alt temp cleanup error: {e}")
-        
-        # 5. Close the main window
-        try:
-            if self.winfo_exists():
-                self.destroy()
-        except Exception as e:
-            self.log(f"[W] Window destroy error: {e}")
-        
-        # 6. Force exit to prevent hanging threads
-        try:
-            os._exit(0)
-        except Exception as e:
-            self.log(f"[W] Exit error: {e}")
-            import sys
-            sys.exit(0)
+        # Force exit to prevent hanging internal threads/scaling loops
+        os._exit(0)
+
+    async def generate_vec_preview_all(self, html):
+        img = await self.converter.html_to_image(html, "all_vec_tmp.png")
+        if img:
+            res = generate_vectorized_pdf(img, os.path.join(self.converter.temp_dir, "preview_all_vectorized.pdf"))
+            if os.path.exists(img): os.remove(img)
+            return res
+        return None
+
+    async def generate_mosaic_preview_all(self, html):
+        img = await self.converter.html_to_image(html, "all_mosaic_tmp.png")
+        if img:
+            res = generate_html_mosaic(img, os.path.join(self.converter.temp_dir, "preview_all_mosaic.html"))
+            if os.path.exists(img): os.remove(img)
+            return res
+        return None
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
