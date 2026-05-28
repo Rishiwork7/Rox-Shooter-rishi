@@ -183,39 +183,58 @@ class Converter:
             os.makedirs(self.temp_dir, exist_ok=True)
         except Exception as e:
             self.log(f"Error creating temp directory: {e}")
+            
+        self._playwright = None
+        self._browser = None
+        self._browser_lock = None
+
+    async def _get_browser(self):
+        if self._browser_lock is None:
+            self._browser_lock = asyncio.Lock()
+        async with self._browser_lock:
+            if self._browser is None:
+                self._playwright = await async_playwright().start()
+                self._browser = await self._playwright.chromium.launch(headless=True, channel="chrome")
+            return self._browser
 
     async def html_to_pdf(self, html_content, filename="attachment.pdf"):
-        """Convert HTML to PDF using system-installed Chrome (no Chromium download needed)."""
+        """Convert HTML to PDF using persistent Chrome."""
         path = os.path.join(self.temp_dir, filename)
         for attempt in range(1, 4):
+            page = None
             try:
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True, channel="chrome")
-                    page = await browser.new_page()
-                    await page.set_content(html_content, wait_until="networkidle")
-                    await page.pdf(path=path, format="A4")
-                    await browser.close()
+                browser = await self._get_browser()
+                page = await browser.new_page()
+                await page.set_content(html_content, wait_until="networkidle")
+                await page.pdf(path=path, format="A4")
+                await page.close()
                 return path
             except Exception as e:
                 self.log(f"PDF Conversion attempt {attempt}/3 failed: {e}")
+                if page:
+                    try: await page.close()
+                    except: pass
                 if attempt < 3:
                     await asyncio.sleep(self.delays.get('retry', 1.5))
         return None
 
-    async def html_to_image(self, html_content, filename="attachment.png"):
-        """Convert HTML to Image using system-installed Chrome (no Chromium download needed)."""
+    async def html_to_image(self, html_content, filename="attachment.jpg"):
+        """Convert HTML to Image using persistent Chrome."""
         path = os.path.join(self.temp_dir, filename)
         for attempt in range(1, 4):
+            page = None
             try:
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True, channel="chrome")
-                    page = await browser.new_page()
-                    await page.set_content(html_content, wait_until="networkidle")
-                    await page.screenshot(path=path, full_page=True)
-                    await browser.close()
+                browser = await self._get_browser()
+                page = await browser.new_page()
+                await page.set_content(html_content, wait_until="networkidle")
+                await page.screenshot(path=path, type="jpeg", quality=60, full_page=True)
+                await page.close()
                 return path
             except Exception as e:
                 self.log(f"Image Conversion attempt {attempt}/3 failed: {e}")
+                if page:
+                    try: await page.close()
+                    except: pass
                 if attempt < 3:
                     await asyncio.sleep(self.delays.get('retry', 1.5))
         return None
@@ -225,7 +244,7 @@ class Converter:
         """HTML -> Image -> PPTX Slide."""
         path = os.path.join(self.temp_dir, filename)
         unique_id = uuid.uuid4().hex[:8]
-        img_name = f"temp_pptx_{unique_id}.png"
+        img_name = f"temp_pptx_{unique_id}.jpg"
         img_path = os.path.join(self.temp_dir, img_name)
         try:
             await self.html_to_image(html_content, img_name)
@@ -248,7 +267,7 @@ class Converter:
         """HTML -> Image -> PDF."""
         path = os.path.join(self.temp_dir, filename)
         unique_id = uuid.uuid4().hex[:8]
-        img_name = f"temp_pdf_{unique_id}.png"
+        img_name = f"temp_pdf_{unique_id}.jpg"
         img_path = os.path.join(self.temp_dir, img_name)
         try:
             await self.html_to_image(html_content, img_name)
@@ -265,7 +284,7 @@ class Converter:
         """HTML -> Image -> XLS."""
         path = os.path.join(self.temp_dir, filename)
         unique_id = uuid.uuid4().hex[:8]
-        img_name = f"temp_xls_{unique_id}.png"
+        img_name = f"temp_xls_{unique_id}.jpg"
         img_path = os.path.join(self.temp_dir, img_name)
         try:
             await self.html_to_image(html_content, img_name)
@@ -339,19 +358,25 @@ class Converter:
             pdf = pdfium.PdfDocument(pdf_path)
             workbook = xlsxwriter.Workbook(path)
             temp_images = []
+            worksheet = workbook.add_worksheet("Document")
+            current_row = 0
             
             for page_num in range(len(pdf)):
                 page = pdf[page_num]
-                bitmap = page.render(scale=2)
+                # स्केल 1 (नॉर्मल DPI) करने से पिक्सल 4 गुना कम हो जाएंगे
+                bitmap = page.render(scale=1)
                 pil_image = bitmap.to_pil()
                 
-                img_path = os.path.join(self.temp_dir, f"page_{page_num}_{unique_id}.png")
-                pil_image.save(img_path)
+                # PNG की जगह JPEG (Quality=60) में सेव करेंगे
+                img_path = os.path.join(self.temp_dir, f"page_{page_num}_{unique_id}.jpg")
+                pil_image.convert('RGB').save(img_path, format="JPEG", quality=60, optimize=True)
                 temp_images.append(img_path)
                 
-                # 3. Add to XLS
-                worksheet = workbook.add_worksheet(f"Page {page_num+1}")
-                worksheet.insert_image('A1', img_path, {'x_scale': 0.5, 'y_scale': 0.5})
+                # 3. Add to XLS (सभी पेजों को एक ही शीट में नीचे-नीचे लगाएंगे)
+                worksheet.insert_image(current_row, 0, img_path, {'x_scale': 1.0, 'y_scale': 1.0})
+                
+                # अगली इमेज को नीचे खिसकाने के लिए row कैलकुलेट करेंगे (1 row = ~20 pixels)
+                current_row += int(pil_image.height / 19) + 1
             
             workbook.close()
             pdf.close()
