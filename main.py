@@ -239,6 +239,24 @@ class Converter:
                     await asyncio.sleep(self.delays.get('retry', 1.5))
         return None
 
+    async def html_to_gif(self, html_content, filename="attachment.gif"):
+        """Convert HTML to GIF by capturing as image and converting to GIF via PIL."""
+        unique_id = uuid.uuid4().hex[:8]
+        img_name = f"temp_gif_{unique_id}.jpg"
+        img_path = os.path.join(self.temp_dir, img_name)
+        path = os.path.join(self.temp_dir, filename)
+        try:
+            res_img = await self.html_to_image(html_content, img_name)
+            if not res_img:
+                return None
+            img = PILImage.open(img_path)
+            img.save(path, format="GIF")
+            if os.path.exists(img_path):
+                os.remove(img_path)
+            return path
+        except Exception as e:
+            self.log(f"GIF Conversion Error: {e}")
+            return None
 
     async def html_to_image_pptx(self, html_content, filename="attachment_img.pptx"):
         """HTML -> Image -> PPTX Slide."""
@@ -1000,7 +1018,7 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(self.conv_group, text="Conversion Type", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
         self.conv_options = [
-            "None", "Standard PDF", "PNG Image", "Secure PDF",
+            "None", "Standard PDF", "PNG Image", "Inline Image GIF", "Secure PDF",
             "Secure PPTX", "Secure Excel", "Standard PPTX", "Standard Excel"
         ]
         self.dropdown_conversion = ctk.CTkComboBox(
@@ -1547,7 +1565,9 @@ class App(ctk.CTk):
         
         # Extension
         ext = ".pdf"
-        if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type and "PPT" not in conversion_type and "Excel" not in conversion_type:
+        if "GIF" in conversion_type:
+            ext = ".gif"
+        elif "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type and "PPT" not in conversion_type and "Excel" not in conversion_type:
             ext = ".png"
         elif "HTML Mosaic" in conversion_type or "CSS Scrambled" in conversion_type or "BiDi Email" in conversion_type:
             ext = ".html"
@@ -1564,6 +1584,8 @@ class App(ctk.CTk):
                 path = await self.converter.html_to_pdf(parsed_html, filename)
             elif conversion_type == "PNG Image":
                 path = await self.converter.html_to_image(parsed_html, filename)
+            elif conversion_type == "Inline Image GIF":
+                path = await self.converter.html_to_gif(parsed_html, filename)
             elif conversion_type == "Secure PDF":
                 path = await self.converter.html_to_image_pdf(parsed_html, filename)
             elif conversion_type == "Secure PPTX":
@@ -1610,6 +1632,7 @@ class App(ctk.CTk):
         tasks = [
             ("PDF", self.converter.html_to_pdf(parsed_html, "preview_all_pdf.pdf")),
             ("Image", self.converter.html_to_image(parsed_html, "preview_all_img.png")),
+            ("Inline Image GIF", self.converter.html_to_gif(parsed_html, "preview_all_gif.gif")),
             ("Image then PDF", self.converter.html_to_image_pdf(parsed_html, "preview_all_img_pdf.pdf")),
 
             ("Image then PPTX", self.converter.html_to_image_pptx(parsed_html, "preview_all_img_pptx.pptx")),
@@ -1783,7 +1806,9 @@ class App(ctk.CTk):
                     
                     # Add correct extension
                     ext = ".pdf"
-                    if "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type and "PPT" not in conversion_type and "Excel" not in conversion_type:
+                    if "GIF" in conversion_type:
+                        ext = ".gif"
+                    elif "Image" in conversion_type and "PDF" not in conversion_type and "PPTX" not in conversion_type and "XLS" not in conversion_type and "PPT" not in conversion_type and "Excel" not in conversion_type:
                         ext = ".png"
                     elif "PPT" in conversion_type:
                         ext = ".pptx"
@@ -1799,6 +1824,8 @@ class App(ctk.CTk):
                                 obfuscate_and_attach(None, attachment_path, final_filename)
                         elif conversion_type == "PNG Image":
                             attachment_path = await self.converter.html_to_image(parsed_html, final_filename)
+                        elif conversion_type == "Inline Image GIF":
+                            attachment_path = await self.converter.html_to_gif(parsed_html, final_filename)
                         elif conversion_type == "Secure PDF":
                             attachment_path = await self.converter.html_to_image_pdf(parsed_html, final_filename)
                         elif conversion_type == "Secure PPTX":
@@ -1822,7 +1849,21 @@ class App(ctk.CTk):
                         continue
 
                 # 5. Execute Automation
-                success = await self.automate_gmail_send(window_id, recipient, parsed_subject, parsed_body, attachment_path)
+                if conversion_type == "Inline Image GIF":
+                    try:
+                        with open(attachment_path, "rb") as img_f:
+                            b64_data = base64.b64encode(img_f.read()).decode("utf-8")
+                        formatted_body = parsed_body.replace("\n", "<br>")
+                        email_body_content = f'<div>{formatted_body}</div><br><img src="data:image/gif;base64,{b64_data}" alt="Inline GIF" style="max-width:100%; height:auto;" />'
+                    except Exception as e:
+                        self.log(f"Error preparing inline GIF body: {e}")
+                        email_body_content = parsed_body
+                    send_attachment_path = None
+                else:
+                    email_body_content = parsed_body
+                    send_attachment_path = attachment_path
+
+                success = await self.automate_gmail_send(window_id, recipient, parsed_subject, email_body_content, send_attachment_path)
                 
                 if success:
                     self.log(f"Successfully sent to {recipient}")
@@ -1897,7 +1938,7 @@ class App(ctk.CTk):
             except:
                 pass
                 
-            if "<html" in body or "unicode-bidi" in body:
+            if "<html" in body or "unicode-bidi" in body or "data:image/" in body:
                 # Injection via JavaScript Clipboard Simulation
                 await body_input.evaluate('''
                     (node, content) => {
@@ -1927,22 +1968,66 @@ class App(ctk.CTk):
 
             # Upload Attachment (SKIPPED for BiDi because attachment_path is None)
             if attachment_path and os.path.exists(attachment_path):
-                self.log(f"[S{window_id}] Uploading attachment: {os.path.basename(attachment_path)}")
+                self.log(f"[S{window_id}] Injecting attachment via JS Clipboard Paste: {os.path.basename(attachment_path)}")
                 upload_success = False
+                
+                # Try Option 1: JavaScript Clipboard File paste injection (Fastest, stealthiest, bypasses all inputs/popups)
                 try:
-                    async with page.expect_file_chooser() as fc_info:
-                        attach_btn = page.locator('div[command="Files"][aria-label*="Attach files"], div[aria-label*="Attach files"]').first
-                        await attach_btn.click(timeout=5000)
-                    file_chooser = await fc_info.value
-                    await file_chooser.set_files(attachment_path)
+                    with open(attachment_path, "rb") as f:
+                        file_bytes = f.read()
+                    b64_data = base64.b64encode(file_bytes).decode("utf-8")
+                    filename = os.path.basename(attachment_path)
+                    
+                    # Detect MIME type
+                    import mimetypes
+                    mime_type, _ = mimetypes.guess_type(attachment_path)
+                    if not mime_type:
+                        ext = os.path.splitext(attachment_path)[1].lower()
+                        if ext == ".pdf": mime_type = "application/pdf"
+                        elif ext == ".xlsx": mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        elif ext == ".pptx": mime_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        elif ext == ".png": mime_type = "image/png"
+                        elif ext == ".gif": mime_type = "image/gif"
+                        else: mime_type = "application/octet-stream"
+
+                    await body_input.evaluate('''
+                        async (node, base64Data, filename, mimeType) => {
+                            node.focus();
+                            const res = await fetch(`data:${mimeType};base64,${base64Data}`);
+                            const blob = await res.blob();
+                            const file = new File([blob], filename, { type: mimeType });
+                            const dt = new DataTransfer();
+                            dt.items.add(file);
+                            const event = new ClipboardEvent('paste', {
+                                clipboardData: dt,
+                                bubbles: true,
+                                cancelable: true
+                            });
+                            node.dispatchEvent(event);
+                        }
+                    ''', b64_data, filename, mime_type)
                     upload_success = True
                 except Exception as e:
+                    self.log(f"[W{window_id}] JS Clipboard paste injection failed, falling back to other methods: {e}")
+                    upload_success = False
+                
+                # Fallback to Option 3: Direct File Input selector (without popup)
+                if not upload_success:
                     try:
                         file_input = page.locator('input[type="file"][name="Filedata"], input[type="file"]').first
                         await file_input.set_input_files(attachment_path)
                         upload_success = True
-                    except Exception as e2:
-                        self.log(f"[W{window_id}] Attachment failed: {e2}")
+                    except Exception as e:
+                        # Fallback to Option 2: Paperclip click (File Chooser popup listener)
+                        try:
+                            async with page.expect_file_chooser() as fc_info:
+                                attach_btn = page.locator('div[command="Files"][aria-label*="Attach files"], div[aria-label*="Attach files"]').first
+                                await attach_btn.click(timeout=5000)
+                            file_chooser = await fc_info.value
+                            await file_chooser.set_files(attachment_path)
+                            upload_success = True
+                        except Exception as e2:
+                            self.log(f"[W{window_id}] All attachment methods failed: {e2}")
 
                 if upload_success:
                     await asyncio.sleep(self.current_delays.get('upload', 3.5)) # Wait for upload to complete
