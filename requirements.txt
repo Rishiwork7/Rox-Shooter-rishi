@@ -1,13 +1,10 @@
 customtkinter
 playwright
-pdfkit
-imgkit
 python-pptx
 pandas
 xlsxwriter
-pymupdf
+pypdfium2
 supabase
 requests
 pillow
-pyarmor
-pyinstaller
+nuitka

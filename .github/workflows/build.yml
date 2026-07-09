@@ -1,18 +1,13 @@
-name: Build Standalone Executables
+name: Build Standalone with Nuitka
 
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
 
 jobs:
   build:
-    name: Build for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest]
+    name: Build Windows Standalone
+    runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
@@ -21,26 +16,28 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+        cache: 'pip'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pyinstaller
-
+        pip install nuitka
+        
     - name: Install Playwright Browsers
       run: |
         python -m playwright install chromium
 
-    - name: Build EXE (Standard)
+
+
+    - name: Build Standalone with Nuitka
       run: |
-        pyinstaller --noconfirm build_app.spec
+        python -c "import shutil; shutil.copy('main.py', 'Rox-Shooter.py')"
+        python -m nuitka --standalone --windows-console-mode=disable --enable-plugin=tk-inter --include-data-files=rox-logo.png=rox-logo.png --assume-yes-for-downloads Rox-Shooter.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: GmailMailerPro-${{ matrix.os }}
-        path: |
-          dist/GmailMailerPro.exe
-          dist/GmailMailerPro.app
-          dist/GmailMailerPro
+        name: Rox-Shooter
+        path: Rox-Shooter.dist
+        retention-days: 1
