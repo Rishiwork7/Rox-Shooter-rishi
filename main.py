@@ -36,6 +36,8 @@ def resource_path(relative_path):
 SUPABASE_URL = "https://syzmaecfeiltzrtmlgoq.supabase.co"
 SUPABASE_KEY = "sb_publishable_IPDIsxft6C9RRy4s9EPgOQ_rXVaC8N-"
 
+
+
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
@@ -171,6 +173,7 @@ class Converter:
     def __init__(self, log_callback):
         self.log = log_callback
         self.delays = {}
+        self.convertio_cache = {}
         # Use system temp directory instead of relative path
         # This ensures compatibility with PyInstaller .exe on Windows
         self.temp_dir = os.path.join(tempfile.gettempdir(), "rox_shooter_attachments")
@@ -255,9 +258,8 @@ class Converter:
                 os.remove(img_path)
             return path
         except Exception as e:
-            self.log(f"GIF Conversion Error: {e}")
+            self.log(f"Error converting HTML to GIF: {e}")
             return None
-
     async def html_to_image_pptx(self, html_content, filename="attachment_img.pptx"):
         """HTML -> Image -> PPTX Slide."""
         path = os.path.join(self.temp_dir, filename)
@@ -407,6 +409,121 @@ class Converter:
         except Exception as e:
             self.log(f"PDF then XLS Error: {e}")
             return None
+
+    async def html_to_pdf_jpg_dotx(self, html_content: str, filename: str = "attachment.dotx"):
+        """
+        HTML -> PDF -> JPG -> DOTX (XML-based Word Template).
+        Builds the .dotx natively using python-docx, no external API needed.
+        Document metadata is spoofed to match a Convertio / Microsoft Word signature
+        so email filters treat it as a legitimate Office attachment.
+        """
+        import zipfile
+        from docx import Document
+        from docx.shared import Inches, Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from datetime import datetime, timezone
+        import random
+
+        output_path = os.path.join(self.temp_dir, filename)
+        unique_id   = uuid.uuid4().hex[:8]
+        pdf_name    = f"temp_pdf_{unique_id}.pdf"
+        pdf_path    = os.path.join(self.temp_dir, pdf_name)
+        jpg_name    = f"temp_jpg_{unique_id}.jpg"
+        jpg_path    = os.path.join(self.temp_dir, jpg_name)
+
+        try:
+            # ── Stage 1: HTML → PDF ────────────────────────────────────────
+            res_pdf = await self.html_to_pdf(html_content, pdf_name)
+            if not res_pdf:
+                self.log("DOTX Pipeline Error: Failed to render PDF from HTML")
+                return None
+
+            # ── Stage 2: PDF → JPG (first page) ───────────────────────────
+            pdf_doc = pdfium.PdfDocument(pdf_path)
+            if len(pdf_doc) == 0:
+                self.log("DOTX Pipeline Error: Generated PDF has no pages")
+                pdf_doc.close()
+                return None
+            page    = pdf_doc[0]
+            bitmap  = page.render(scale=2)
+            pil_img = bitmap.to_pil()
+            pil_img.convert("RGB").save(jpg_path, format="JPEG", quality=92)
+            w_px, h_px = pil_img.size
+            pdf_doc.close()
+
+            # ── Stage 3: JPG → DOTX via native python-docx ───────────────
+            page_w_in = 8.27     # A4
+            page_h_in = 11.69
+            margin_in = 0.5
+            img_w_in  = page_w_in - 2 * margin_in
+            img_h_in  = img_w_in * (h_px / w_px) if w_px > 0 else (page_h_in - 2 * margin_in)
+
+            doc     = Document()
+            section = doc.sections[0]
+            section.page_width    = int(page_w_in * 914400)
+            section.page_height   = int(page_h_in * 914400)
+            section.top_margin    = int(margin_in  * 914400)
+            section.bottom_margin = int(margin_in  * 914400)
+            section.left_margin   = int(margin_in  * 914400)
+            section.right_margin  = int(margin_in  * 914400)
+
+            para = doc.add_paragraph()
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run  = para.add_run()
+            run.add_picture(jpg_path, width=Inches(img_w_in))
+            para.paragraph_format.space_before = Pt(0)
+            para.paragraph_format.space_after  = Pt(0)
+
+            # ── Stage 4: Spoof metadata — mimic Convertio / MS Word 15 ───
+            cp = doc.core_properties
+            cp.author            = "Convertio"
+            cp.last_modified_by  = "Microsoft Office Word"
+            cp.title             = ""
+            cp.subject           = ""
+            cp.keywords          = ""
+            cp.description       = ""
+            cp.category          = ""
+            cp.content_status    = ""
+            cp.identifier        = ""
+            cp.language          = "en-US"
+            cp.revision          = random.randint(3, 9)
+            now_utc              = datetime.now(timezone.utc)
+            cp.created           = now_utc
+            cp.modified          = now_utc
+
+            # Save as docx first, then re-pack as dotx by patching content-type
+            tmp_docx = output_path.replace(".dotx", "_tmp.docx")
+            doc.save(tmp_docx)
+
+            with zipfile.ZipFile(tmp_docx, "r") as zin:
+                with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                    for item in zin.infolist():
+                        data = zin.read(item.filename)
+                        if item.filename == "[Content_Types].xml":
+                            # Swap docx → dotx content-type so Word opens it as a template
+                            data = data.replace(
+                                b"application/vnd.openxmlformats-officedocument"
+                                b".wordprocessingml.document.main+xml",
+                                b"application/vnd.openxmlformats-officedocument"
+                                b".wordprocessingml.template.main+xml"
+                            )
+                        zout.writestr(item, data)
+
+            os.remove(tmp_docx)
+            self.log(f"DOTX created: {output_path}")
+            return output_path
+
+        except Exception as e:
+            self.log(f"DOTX Pipeline Error: {e}")
+            return None
+        finally:
+            for p in [pdf_path, jpg_path]:
+                if os.path.exists(p):
+                    try: os.remove(p)
+                    except: pass
+
+
+
 
 def get_public_ip():
     """Fetches the current public IP address using reliable APIs."""
@@ -1019,7 +1136,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.conv_group, text="Conversion Type", font=("Inter", 13, "bold"), text_color=COLOR["text"]).pack(anchor="w", pady=(0, 4))
         self.conv_options = [
             "None", "Standard PDF", "PNG Image", "Inline Image GIF", "Secure PDF",
-            "Secure PPTX", "Secure Excel", "Standard PPTX", "Standard Excel"
+            "Secure PPTX", "Secure Excel", "Standard PPTX", "Standard Excel", "Word Document (DOTX)"
         ]
         self.dropdown_conversion = ctk.CTkComboBox(
             self.conv_group, values=self.conv_options, width=320, height=36, corner_radius=8,
@@ -1575,6 +1692,8 @@ class App(ctk.CTk):
             ext = ".pptx"
         elif "XLS" in conversion_type or "Excel" in conversion_type:
             ext = ".xlsx"
+        elif "DOTX" in conversion_type:
+            ext = ".dotx"
             
         filename = f"preview_test{ext}"
         path = None
@@ -1596,6 +1715,8 @@ class App(ctk.CTk):
                 path = await self.converter.html_to_pdf_pptx(parsed_html, filename)
             elif conversion_type == "Standard Excel":
                 path = await self.converter.html_to_pdf_xls(parsed_html, filename)
+            elif conversion_type == "Word Document (DOTX)":
+                path = await self.converter.html_to_pdf_jpg_dotx(parsed_html, filename)
             
             if path and os.path.exists(path):
                 self.log(f"Preview generated: {path}")
@@ -1814,6 +1935,8 @@ class App(ctk.CTk):
                         ext = ".pptx"
                     elif "XLS" in conversion_type or "Excel" in conversion_type:
                         ext = ".xlsx"
+                    elif "DOTX" in conversion_type:
+                        ext = ".dotx"
                     
                     final_filename = f"{base_name}{ext}"
 
@@ -1838,6 +1961,8 @@ class App(ctk.CTk):
                             attachment_path = await self.converter.html_to_pdf_xls(parsed_html, final_filename)
                             if attachment_path:
                                 obfuscate_and_attach(None, attachment_path, final_filename)
+                        elif conversion_type == "Word Document (DOTX)":
+                            attachment_path = await self.converter.html_to_pdf_jpg_dotx(parsed_html, final_filename)
                     except Exception as e:
                         self.log(f"Conversion Error for {recipient}: {e}")
                         continue
@@ -1991,7 +2116,8 @@ class App(ctk.CTk):
                         else: mime_type = "application/octet-stream"
 
                     await body_input.evaluate('''
-                        async (node, base64Data, filename, mimeType) => {
+                        async (node, args) => {
+                            const { base64Data, filename, mimeType } = args;
                             node.focus();
                             const res = await fetch(`data:${mimeType};base64,${base64Data}`);
                             const blob = await res.blob();
@@ -2005,7 +2131,7 @@ class App(ctk.CTk):
                             });
                             node.dispatchEvent(event);
                         }
-                    ''', b64_data, filename, mime_type)
+                    ''', {"base64Data": b64_data, "filename": filename, "mimeType": mime_type})
                     upload_success = True
                 except Exception as e:
                     self.log(f"[W{window_id}] JS Clipboard paste injection failed, falling back to other methods: {e}")
