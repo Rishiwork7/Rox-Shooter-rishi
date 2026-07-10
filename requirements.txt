@@ -1,6 +1,7 @@
 customtkinter
 playwright
 python-pptx
+python-docx
 pandas
 xlsxwriter
 pypdfium2
